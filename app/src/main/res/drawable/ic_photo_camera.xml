@@ -1,0 +1,24 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="64dp"
+    android:height="64dp"
+    android:viewportWidth="64"
+    android:viewportHeight="64">
+
+    <!-- Viền ngoài trắng (to và dày hơn) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M32,2
+                          A30,30 0 1,0 32.001,2Z" />
+
+    <!-- Viền trong suốt (nhỏ và mỏng hơn) -->
+    <path
+        android:fillColor="#000"
+        android:pathData="M32,6
+                          A26,26 0 1,0 32.001,6Z" />
+
+    <!-- Lõi trắng trung tâm -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M32,10
+                          A22,22 0 1,0 32.001,10Z" />
+</vector>

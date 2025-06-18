@@ -1,0 +1,55 @@
+<resources>
+    <string name="app_name">VG Camera</string>
+    <string name="title_activity_settings">SettingsActivity</string>
+
+    <!-- Preference Titles -->
+    <string name="messages_header">Messages</string>
+    <string name="sync_header">Sync</string>
+
+    <!-- Messages Preferences -->
+    <string name="signature_title">Your signature</string>
+    <string name="reply_title">Default reply action</string>
+
+    <!-- Sync Preferences -->
+    <string name="sync_title">Sync email periodically</string>
+    <string name="attachment_title">Download incoming attachments</string>
+    <string name="attachment_summary_on">Automatically download attachments for incoming emails
+    </string>
+    <string name="attachment_summary_off">Only download attachments when manually requested</string>
+    <string-array name="photo_resolutions_en">
+        <item>Low (640x480)</item>
+        <item>Medium (1280x720)</item>
+        <item>High (1920x1440)</item>
+    </string-array>
+
+    <string-array name="video_resolutions_en">
+        <item>Low (720x480)(SD)</item>
+        <item>Medium (1280x720)(HD)</item>
+        <item>High (1920x1080)(FHD)</item>
+    </string-array>
+    <string-array name="photo_resolutions_vi">
+        <item>Thấp (640x480)</item>
+        <item>Trung bình (1280x720)</item>
+        <item>Cao (1920x1440)</item>
+    </string-array>
+
+    <string-array name="video_resolutions_vi">
+        <item>Thấp (720x480)(SD)</item>
+        <item>Trung bình (1280x720)(HD)</item>
+        <item>Cao (1920x1080)(FHD)</item>
+    </string-array>
+    <string-array name="photo_resolutions_cn">
+        <item>低 (640x480)</item>
+        <item>中 (1280x720)</item>
+        <item>高 (1920x1440)</item>
+    </string-array>
+
+    <string-array name="video_resolutions_cn">
+        <item>低 (720x480)(SD)</item>
+        <item>中 (1280x720)(HD)</item>
+        <item>高 (1920x1080)(FHD)</item>
+    </string-array>
+
+
+
+</resources>

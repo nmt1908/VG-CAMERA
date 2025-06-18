@@ -1,0 +1,18 @@
+<!-- res/drawable/zoom_button.xml -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Trạng thái nhấn -->
+    <item android:state_pressed="true">
+        <shape android:shape="oval">
+            <solid android:color="#88000000" /> <!-- Đậm hơn khi nhấn -->
+            <size android:width="48dp" android:height="48dp" />
+        </shape>
+    </item>
+
+    <!-- Trạng thái bình thường -->
+    <item android:state_enabled="true">
+        <shape android:shape="oval">
+            <solid android:color="#66000000" /> <!-- Màu đen mờ -->
+            <size android:width="48dp" android:height="48dp" />
+        </shape>
+    </item>
+</selector>

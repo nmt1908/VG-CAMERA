@@ -276,7 +276,7 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
                         .build();
 
                 Request requestPrimary = new Request.Builder()
-                        .url("http://10.13.32.50:5001/recognize-anti-spoofing")
+                        .url("http://10.13.32.51:5001/recognize-anti-spoofing")
                         .addHeader("X-API-Key", "vg_login_app")
                         .addHeader("X-Time", currentTime)
                         .post(requestBodyPrimary)
@@ -313,7 +313,7 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
                             .build();
 
                     Request requestFallback = new Request.Builder()
-                            .url("http://10.1.16.23:8002/api/x/fr/env/face_search")
+                            .url("http://10.1.16.23:8001/api/x/fr/env/face_search")
                             .post(requestBodyFallback)
                             .build();
 

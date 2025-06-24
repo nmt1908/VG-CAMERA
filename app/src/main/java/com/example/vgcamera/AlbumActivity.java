@@ -1163,9 +1163,12 @@ public class AlbumActivity extends AppCompatActivity {
         }
     }
     public void getInfoByEmpNo(String cardId) {
+        getInfoByEmpNoInternal(cardId, true);
+    }
+
+    private void getInfoByEmpNoInternal(String cardId, boolean tryFallback) {
         OkHttpClient client = new OkHttpClient();
 
-        // Tạo URL và body
         String url = "http://gmo021.cansportsvg.com/api/camera-api/getInfoByEmpNo";
         RequestBody formBody = new FormBody.Builder()
                 .add("empno", cardId)
@@ -1176,11 +1179,17 @@ public class AlbumActivity extends AppCompatActivity {
                 .post(formBody)
                 .build();
 
-        // Gửi request bất đồng bộ
         client.newCall(request).enqueue(new Callback() {
             @Override
             public void onFailure(@NotNull Call call, @NotNull IOException e) {
                 Log.e("API_CALL", "Request failed: " + e.getMessage());
+
+                // Nếu lỗi và cho phép fallback, thử lại bằng cách bỏ ký tự đầu
+                if (tryFallback && cardId.length() > 1) {
+                    String fallbackCardId = cardId.substring(1);
+                    Log.d("API_CALL", "Retrying with fallback cardId: " + fallbackCardId);
+                    getInfoByEmpNoInternal(fallbackCardId, false); // không retry lần nữa nếu tiếp tục fail
+                }
             }
 
             @Override
@@ -1189,16 +1198,25 @@ public class AlbumActivity extends AppCompatActivity {
                     String body = response.body().string();
                     try {
                         userJson = new JSONObject(body);
-                        // Ở đây bạn có thể gọi callback hoặc xử lý tiếp
+                        // Xử lý JSON tại đây
+                        Log.d("API_CALL", "User info: " + userJson.toString());
                     } catch (JSONException e) {
                         Log.e("API_CALL", "Failed to parse JSON: " + e.getMessage());
                     }
                 } else {
-                    Log.e("API_CALL", "Request failed: " + response.code());
+                    Log.e("API_CALL", "Request failed with code: " + response.code());
+
+                    // Nếu HTTP response không thành công và cho phép fallback
+                    if (tryFallback && cardId.length() > 1) {
+                        String fallbackCardId = cardId.substring(1);
+                        Log.d("API_CALL", "Retrying with fallback cardId: " + fallbackCardId);
+                        getInfoByEmpNoInternal(fallbackCardId, false);
+                    }
                 }
             }
         });
     }
+
     public void setPendingDeleteUri(Uri uri) {
         this.pendingDeleteUri = uri;
     }

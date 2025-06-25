@@ -207,8 +207,11 @@ public class AlbumActivity extends AppCompatActivity {
                             }
                         }
 
-                        uploadSelectedMedia(selectedMedia);
-
+//                        uploadSelectedMedia(selectedMedia);
+                        new MediaUploader(
+                                AlbumActivity.this,
+                                userJson
+                        ).uploadSelectedMedia(selectedMedia);
                         new Handler(Looper.getMainLooper()).postDelayed(() -> {
                             uploadButton.setEnabled(true);
                         }, 2000);

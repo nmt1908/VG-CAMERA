@@ -134,6 +134,8 @@ public class AlbumActivity extends AppCompatActivity {
     private String selectAllTextString = "Select All";
 
     private List<String> allowedSSIDs = new ArrayList<>();
+    final float[] downY = new float[1];
+    final long[] downTime = new long[1];
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -234,12 +236,27 @@ public class AlbumActivity extends AppCompatActivity {
         }
         recyclerView.setLayoutManager(new GridLayoutManager(this, 3));
         recyclerView.setOnTouchListener((v, event) -> {
-            if (adapter.isSelectionMode()) {
-                // Nếu click chỗ nào không phải item thì tắt selection mode
-                adapter.deselectAll();
-                updateTitle();
-                updateSelectAllIcon();
-                return true; // ngăn sự kiện tiếp tục
+            switch (event.getAction()) {
+                case MotionEvent.ACTION_DOWN:
+                    downY[0] = event.getY();
+                    downTime[0] = System.currentTimeMillis();
+                    break;
+
+                case MotionEvent.ACTION_UP:
+                    float deltaY = Math.abs(event.getY() - downY[0]);
+                    long elapsed = System.currentTimeMillis() - downTime[0];
+
+                    // Nếu không cuộn (tap nhẹ, ngắn) thì mới hủy chọn
+                    if (deltaY < 20 && elapsed < 200) {
+                        if (adapter.isSelectionMode()) {
+                            Log.d("AlbumActivity", "RecyclerView tapped (not scrolled). Deselecting all.");
+                            adapter.deselectAll();
+                            updateTitle();
+                            updateSelectAllIcon();
+                            return true;
+                        }
+                    }
+                    break;
             }
             return false;
         });

@@ -328,17 +328,27 @@ public class AlbumActivity extends AppCompatActivity {
         client.newCall(request).enqueue(new okhttp3.Callback() {
             @Override
             public void onFailure(Call call, IOException e) {
-                new Handler(getMainLooper()).post(() ->
-                        Toast.makeText(AlbumActivity.this, "Failed to fetch SSIDs: " + e.getMessage(), Toast.LENGTH_SHORT).show()
-                );
+                // Gán mặc định "gmo032" nếu lỗi mạng
+                allowedSSIDs.clear();
+                allowedSSIDs.add("gmo032");
+
+                new Handler(getMainLooper()).post(() -> {
+                    Log.w("SSID_LIST", "API call failed. Using default SSID: gmo032");
+                    Toast.makeText(AlbumActivity.this, "Failed to fetch SSIDs. Using default: gmo032", Toast.LENGTH_SHORT).show();
+                });
             }
 
             @Override
             public void onResponse(Call call, Response response) throws IOException {
                 if (!response.isSuccessful()) {
-                    new Handler(getMainLooper()).post(() ->
-                            Toast.makeText(AlbumActivity.this, "Server error: " + response.code(), Toast.LENGTH_SHORT).show()
-                    );
+                    // Gán mặc định "gmo032" nếu server trả lỗi
+                    allowedSSIDs.clear();
+                    allowedSSIDs.add("gmo032");
+
+                    new Handler(getMainLooper()).post(() -> {
+                        Log.w("SSID_LIST", "Server error. Using default SSID: gmo032");
+                        Toast.makeText(AlbumActivity.this, "Server error. Using default: gmo032", Toast.LENGTH_SHORT).show();
+                    });
                     return;
                 }
 
@@ -346,7 +356,7 @@ public class AlbumActivity extends AppCompatActivity {
 
                 try {
                     JSONArray ssidArray = new JSONArray(jsonString);
-                    allowedSSIDs.clear(); // clear danh sách cũ nếu có
+                    allowedSSIDs.clear();
                     for (int i = 0; i < ssidArray.length(); i++) {
                         JSONObject obj = ssidArray.getJSONObject(i);
                         String ssid = obj.getString("ssid");
@@ -354,18 +364,23 @@ public class AlbumActivity extends AppCompatActivity {
                     }
 
                     new Handler(getMainLooper()).post(() ->
-                            Log.d("SSID_LIST", "Available SSIDs: " + allowedSSIDs)
+                            Log.d("SSID_LIST", "Fetched SSIDs: " + allowedSSIDs)
                     );
 
                 } catch (JSONException e) {
-                    e.printStackTrace();
-                    new Handler(getMainLooper()).post(() ->
-                            Toast.makeText(AlbumActivity.this, "Parse error: " + e.getMessage(), Toast.LENGTH_SHORT).show()
-                    );
+                    // Gán mặc định "gmo032" nếu lỗi phân tích JSON
+                    allowedSSIDs.clear();
+                    allowedSSIDs.add("gmo032");
+
+                    new Handler(getMainLooper()).post(() -> {
+                        Log.w("SSID_LIST", "JSON parse error. Using default SSID: gmo032");
+                        Toast.makeText(AlbumActivity.this, "Parse error. Using default: gmo032", Toast.LENGTH_SHORT).show();
+                    });
                 }
             }
         });
     }
+
 
 
 
@@ -669,7 +684,19 @@ public class AlbumActivity extends AppCompatActivity {
     }
 
 
-
+    public void showUploadSuccessDialog() {
+        showCustomDialog(
+                R.drawable.check_circle,
+                R.color.bluesuccess,
+                uploadSuccess,
+                uploadMessage,
+                uploadButtonText,
+                () -> {
+                    adapter.deselectAll();
+                    adapter.notifyDataSetChanged();
+                }
+        );
+    }
     private void updateTitle() {
         long selectedCount = mediaItems.stream().filter(m -> m.isSelected).count();
         boolean selectionMode = selectedCount > 0;
@@ -781,7 +808,7 @@ public class AlbumActivity extends AppCompatActivity {
             }
         }
     }
-    private JSONObject getVideoGpsFromSidecar(Uri videoUri) {
+    public JSONObject getVideoGpsFromSidecar(Uri videoUri) {
         try {
             String videoName = queryDisplayNameFromUri(videoUri);
             if (videoName != null && videoName.endsWith(".mp4")) {
@@ -819,7 +846,7 @@ public class AlbumActivity extends AppCompatActivity {
         return null;
     }
 
-    private JSONObject getExifLocationFromUri(Uri imageUri) {
+    public JSONObject getExifLocationFromUri(Uri imageUri) {
         JSONObject pos = new JSONObject();
         try {
             ContentResolver resolver = getContentResolver();

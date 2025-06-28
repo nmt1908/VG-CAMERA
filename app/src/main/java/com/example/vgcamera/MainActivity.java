@@ -254,6 +254,8 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
             long startTotalTime = System.currentTimeMillis(); // ⭐ Bắt đầu đo toàn bộ thời gian API
 
             try {
+                Log.d("TIMECALL", "🔁 Start uploading image: " + file.getName());
+
                 byte[] fileBytes;
                 try (InputStream is = new FileInputStream(file)) {
                     ByteArrayOutputStream buffer = new ByteArrayOutputStream();
@@ -268,7 +270,7 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
                 String currentTime = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
                         .format(new Date());
 
-                // API chính: 5001
+                // API chính
                 RequestBody requestBodyPrimary = new MultipartBody.Builder()
                         .setType(MultipartBody.FORM)
                         .addFormDataPart("image_file", file.getName(),
@@ -283,7 +285,7 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
                         .build();
 
                 OkHttpClient clientWithTimeout = httpClient.newBuilder()
-                        .callTimeout(5, TimeUnit.SECONDS)
+                        .callTimeout(10, TimeUnit.SECONDS)
                         .build();
 
                 Response response;
@@ -291,18 +293,20 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
                 boolean isFallback = false;
 
                 try {
-                    Log.d("TIMECALL", "Calling primary API (port 5001)");
-                    long startApiTime = System.currentTimeMillis(); // ⏱️ bắt đầu đo thời gian gửi API chính
+                    Log.d("TIMECALL", "🌐 Calling primary API (port 5001): http://10.13.32.51:5001/recognize-anti-spoofing");
+                    long startApiTime = System.currentTimeMillis();
 
                     response = clientWithTimeout.newCall(requestPrimary).execute();
 
                     long durationApiTime = System.currentTimeMillis() - startApiTime;
-                    Log.d("TIMECALL", "Primary API responded in " + durationApiTime + " ms");
+                    Log.d("TIMECALL", "✅ Primary API responded in " + durationApiTime + " ms");
+                    Log.d("TIMECALL", "✅ Primary API response code: " + response.code());
 
                     responseBody = response.body().string();
+                    Log.d("TIMECALL", "✅ Primary API response body: " + responseBody);
                 } catch (Exception ex) {
-                    Log.e("TIMECALL", "Primary API failed: " + ex.getMessage());
-                    Log.d("TIMECALL", "Falling back to secondary API (port 8001)");
+                    Log.e("TIMECALL", "❌ Primary API failed: " + ex.getMessage());
+                    Log.d("TIMECALL", "🌐 Falling back to secondary API (port 8001): http://10.1.16.23:8001/api/x/fr/env/face_search");
                     isFallback = true;
 
                     RequestBody requestBodyFallback = new MultipartBody.Builder()
@@ -317,14 +321,16 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
                             .post(requestBodyFallback)
                             .build();
 
-                    long startApiTime = System.currentTimeMillis(); // ⏱️ bắt đầu đo thời gian gửi API phụ
+                    long startApiTime = System.currentTimeMillis();
 
                     response = httpClient.newCall(requestFallback).execute();
 
                     long durationApiTime = System.currentTimeMillis() - startApiTime;
-                    Log.d("TIMECALL", "Fallback API responded in " + durationApiTime + " ms");
+                    Log.d("TIMECALL", "✅ Fallback API responded in " + durationApiTime + " ms");
+                    Log.d("TIMECALL", "✅ Fallback API response code: " + response.code());
 
                     responseBody = response.body().string();
+                    Log.d("TIMECALL", "✅ Fallback API response body: " + responseBody);
                 }
 
                 runOnUiThread(() -> {
@@ -333,6 +339,7 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
                 });
 
                 if (!response.isSuccessful()) {
+                    Log.e("TIMECALL", (isFallback ? "❌ Fallback" : "❌ Primary") + " API failed with code: " + response.code());
                     if (response.code() == 400) {
                         handleRecognitionFail();
                     } else {
@@ -344,6 +351,7 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
                 JSONObject jsonObject = new JSONObject(responseBody);
 
                 if (jsonObject.optBoolean("is_fake", false)) {
+                    Log.d("TIMECALL", "🛑 Detected spoofed face.");
                     handleRecognitionFail();
                     return;
                 }
@@ -354,6 +362,7 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
                     double similarityVal = jsonObject.optDouble("similarity", 0) * 100;
 
                     if (similarityVal <= 55) {
+                        Log.d("TIMECALL", "🟡 Similarity too low: " + similarityVal);
                         handleRecognitionFail();
                         return;
                     }
@@ -391,6 +400,7 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
                         finish();
                     });
                 } else {
+                    Log.d("TIMECALL", "🟤 Face not recognized.");
                     runOnUiThread(() -> alertTextView.setText("Face not recognized"));
                     handleRecognitionFail();
                 }
@@ -398,7 +408,7 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
             } catch (Exception e) {
                 e.printStackTrace();
                 showToastOnMainThread("Error: " + e.getMessage());
-                Log.e("FaceAPI_Error", e.getMessage(), e);
+                Log.e("FaceAPI_Error", "❗ Exception: " + e.getMessage(), e);
             } finally {
                 long totalDuration = System.currentTimeMillis() - startTotalTime;
                 Log.d("TIMECALL", "🕒 Total API round-trip time: " + totalDuration + " ms");
@@ -410,6 +420,7 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
             }
         }).start();
     }
+
 
 
 

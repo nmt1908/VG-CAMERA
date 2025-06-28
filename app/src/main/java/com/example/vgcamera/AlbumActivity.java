@@ -136,6 +136,8 @@ public class AlbumActivity extends AppCompatActivity {
     private List<String> allowedSSIDs = new ArrayList<>();
     final float[] downY = new float[1];
     final long[] downTime = new long[1];
+    String currentSSID;
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -145,6 +147,7 @@ public class AlbumActivity extends AppCompatActivity {
         setContentView(R.layout.activity_album);
         prefs = getSharedPreferences("VGCameraPrefs", MODE_PRIVATE);
         currentLanguage = prefs.getString("app_language", "en"); // "en" mặc định
+
         recyclerView = findViewById(R.id.recyclerView);
         titleText = findViewById(R.id.titleText);
         uploadText=findViewById(R.id.uploadText);
@@ -163,6 +166,8 @@ public class AlbumActivity extends AppCompatActivity {
             return; // Dừng không chạy tiếp
         }
         getSSIDAllowed();
+
+
         getInfoByEmpNo(newUser.getCardId());
         deleteButton.setOnClickListener(v -> {
             adapter.deleteSelectedItems(); // Cần thêm hàm này trong adapter
@@ -171,9 +176,8 @@ public class AlbumActivity extends AppCompatActivity {
 
         uploadButton.setOnClickListener(v -> {
             String allowedSSIDsStr = TextUtils.join(", ", allowedSSIDs);
-            WifiManager wifiManager = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
-            WifiInfo wifiInfo = wifiManager.getConnectionInfo();
-            String currentSSID = wifiInfo.getSSID();
+
+            Log.d("CURRENT SSID",currentSSID);
 
             if (currentSSID != null && currentSSID.startsWith("\"") && currentSSID.endsWith("\"")) {
                 currentSSID = currentSSID.substring(1, currentSSID.length() - 1);
@@ -187,6 +191,18 @@ public class AlbumActivity extends AppCompatActivity {
                         R.color.red,
                         "Tải lên thất bại",
                         "Wifi hiện tại không hợp lệ, Vui lòng kết nối đúng Wifi: "+ allowedSSIDsStr,
+                        "OK",
+                        null
+                );
+                return;
+            }
+            if (userJson == null ||
+                    !userJson.has("username") || !userJson.has("empno") || !userJson.has("name")) {
+                showCustomDialog(
+                        R.drawable.ic_x_circle,
+                        R.color.red,
+                        "Tải lên thất bại",
+                        "Thông tin tài khoản của bạn chưa được cập nhật. Vui lòng liên hệ PS",
                         "OK",
                         null
                 );
@@ -290,6 +306,7 @@ public class AlbumActivity extends AppCompatActivity {
         updateTextsByLanguage(currentLanguage);
         checkPermissionsAndLoad();
     }
+
     private final BroadcastReceiver networkReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
@@ -299,6 +316,10 @@ public class AlbumActivity extends AppCompatActivity {
             if (networkInfo != null && networkInfo.isConnected() && networkInfo.getType() == ConnectivityManager.TYPE_WIFI) {
                 Log.d("NETWORK", "📶 Wi-Fi connected, fetching SSID list...");
                 getSSIDAllowed(); // tự động fetch lại khi kết nối wifi
+                WifiManager wifiManager = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+                WifiInfo wifiInfo = wifiManager.getConnectionInfo();
+                currentSSID = wifiInfo.getSSID();
+                Log.e("Current SSID",currentSSID);
             } else {
                 Log.d("NETWORK", "❌ Mất kết nối hoặc không phải Wi-Fi");
             }
@@ -991,25 +1012,50 @@ public class AlbumActivity extends AppCompatActivity {
 
 
 
+
     private void checkPermissionsAndLoad() {
+        List<String> permissionsToRequest = new ArrayList<>();
+
+        // Media permissions
         if (Build.VERSION.SDK_INT >= 33) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES) != PackageManager.PERMISSION_GRANTED ||
-                    ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_VIDEO) != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(this,
-                        new String[]{Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO},
-                        REQUEST_PERMISSION);
-                return;
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES) != PackageManager.PERMISSION_GRANTED) {
+                permissionsToRequest.add(Manifest.permission.READ_MEDIA_IMAGES);
+            }
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_VIDEO) != PackageManager.PERMISSION_GRANTED) {
+                permissionsToRequest.add(Manifest.permission.READ_MEDIA_VIDEO);
             }
         } else {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(this,
-                        new String[]{Manifest.permission.READ_EXTERNAL_STORAGE},
-                        REQUEST_PERMISSION);
-                return;
+                permissionsToRequest.add(Manifest.permission.READ_EXTERNAL_STORAGE);
             }
         }
-        loadMedia();
+
+        // Location permission for SSID
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            permissionsToRequest.add(Manifest.permission.ACCESS_FINE_LOCATION);
+        }
+
+        // Nearby Wi-Fi permission (Android 13+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED) {
+                permissionsToRequest.add(Manifest.permission.NEARBY_WIFI_DEVICES);
+            }
+        }
+
+        if (!permissionsToRequest.isEmpty()) {
+            ActivityCompat.requestPermissions(
+                    this,
+                    permissionsToRequest.toArray(new String[0]),
+                    REQUEST_PERMISSION
+            );
+            return;
+        }
+
+        // Nếu đã đủ quyền thì chạy bình thường
+        getSSIDAllowed(); // lấy danh sách SSID được phép
+        loadMedia();      // load media như cũ
     }
+
     public void showPreviewDialog(int startPosition) {
         Dialog dialog = new Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
         dialog.setContentView(R.layout.dialog_preview);
@@ -1202,13 +1248,28 @@ public class AlbumActivity extends AppCompatActivity {
     public void onRequestPermissionsResult(int requestCode,
                                            @NonNull String[] permissions,
                                            @NonNull int[] grantResults) {
-        if (requestCode == REQUEST_PERMISSION && grantResults.length > 0 &&
-                grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-            loadMedia();
-        } else {
-            finish();
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+
+        if (requestCode == REQUEST_PERMISSION) {
+            boolean allGranted = true;
+
+            for (int result : grantResults) {
+                if (result != PackageManager.PERMISSION_GRANTED) {
+                    allGranted = false;
+                    break;
+                }
+            }
+
+            if (allGranted) {
+                getSSIDAllowed(); // Gọi lại lấy SSID nếu cần
+                loadMedia();      // Tiếp tục logic chính
+            } else {
+                Toast.makeText(this, "Bạn cần cấp đủ quyền để sử dụng ứng dụng", Toast.LENGTH_LONG).show();
+                finish(); // Đóng nếu không đủ quyền
+            }
         }
     }
+
     public void getInfoByEmpNo(String cardId) {
         getInfoByEmpNoInternal(cardId, true);
     }

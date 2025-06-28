@@ -118,6 +118,8 @@ public class CameraActivity extends AppCompatActivity {
     private FusedLocationProviderClient fusedLocationClient;
     private Location lastKnownLocation;
     ImageButton photoMode,videoMode;
+    private Runnable stopRecordingRunnable;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -689,11 +691,27 @@ public class CameraActivity extends AppCompatActivity {
         };
 
         handler.post(timerRunnable);
+        stopRecordingRunnable = new Runnable() {
+            @Override
+            public void run() {
+                if (activeRecording != null) {
+                    Log.d("VIDEO", "Reached 5-minute limit, stopping recording.");
+                    activeRecording.stop();
+                    activeRecording = null;
+                    handler.removeCallbacks(timerRunnable);
+                    txtTimer.setVisibility(View.GONE);
+                    btnAction.setImageResource(R.drawable.ic_video_camera);
+                    Toast.makeText(CameraActivity.this, "Đã quay đủ 5 phút", Toast.LENGTH_SHORT).show();
+                }
+            }
+        };
+        handler.postDelayed(stopRecordingRunnable, 5 * 60 * 1000); // 5 phút
         if (activeRecording != null) {
             // Đang quay -> dừng quay
             activeRecording.stop();
             activeRecording = null;
             handler.removeCallbacks(timerRunnable);
+            handler.removeCallbacks(stopRecordingRunnable);
             txtTimer.setVisibility(View.GONE);
             btnAction.setImageResource(R.drawable.ic_video_camera);
             return;

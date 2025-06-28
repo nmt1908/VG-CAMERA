@@ -145,6 +145,7 @@ public class MediaUploader {
         if (index >= videos.size()) {
             progressDialog.dismiss();
             activity.showUploadSuccessDialog();
+            notifyUploadCompleted();
             return;
         }
 
@@ -164,7 +165,28 @@ public class MediaUploader {
             });
         }).start();
     }
+    private void notifyUploadCompleted() {
+        new Thread(() -> {
+            try {
+                JSONObject payload = buildBasePayload(); // dùng lại hàm này
+                RequestBody body = RequestBody.create(payload.toString(), MediaType.parse("application/json"));
 
+                Request request = new Request.Builder()
+                        .url("http://gmo021.cansportsvg.com/api/camera-api/notifyUploadComplete")
+                        .post(body)
+                        .build();
+
+                Response response = client.newCall(request).execute();
+                if (response.isSuccessful()) {
+                    Log.d(TAG, "Email notification sent successfully");
+                } else {
+                    Log.e(TAG, "Failed to notify server for email. Code: " + response.code());
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Exception in notifyUploadCompleted", e);
+            }
+        }).start();
+    }
     private void updateProgress() {
         int percent = (int) ((uploadedCount / (float) totalMediaCount) * 100);
         Log.d(TAG, "Uploaded: " + uploadedCount + "/" + totalMediaCount + " (" + percent + "%)");

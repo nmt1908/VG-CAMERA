@@ -337,6 +337,14 @@ public class AlbumActivity extends AppCompatActivity {
         super.onStop();
         unregisterReceiver(networkReceiver);
     }
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (newUser != null && newUser.getCardId() != null) {
+            getInfoByEmpNo(newUser.getCardId());
+            Log.d("LIFECYCLE", "onResume: Fetching user info again");
+        }
+    }
 
     // Hàm xử lý upload
     private void getSSIDAllowed() {

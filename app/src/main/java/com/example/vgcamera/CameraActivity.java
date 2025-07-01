@@ -453,8 +453,8 @@ public class CameraActivity extends AppCompatActivity {
 
                 // Lấy cài đặt độ phân giải từ SharedPreferences
                 SharedPreferences prefs = getSharedPreferences("VGCameraPrefs", MODE_PRIVATE);
-                int photoResIndex = prefs.getInt("photo_resolution_index", 1); // Default: Medium
-                int videoResIndex = prefs.getInt("video_resolution_index", 1); // Default: Medium
+                int photoResIndex = prefs.getInt("photo_resolution_index", 2); // Default: Medium
+                int videoResIndex = prefs.getInt("video_resolution_index", 0); // Default: Medium
 
                 Size targetPhotoSize = getPhotoResolutionForIndex(photoResIndex);
                 QualitySelector videoQualitySelector = getVideoQualitySelector(videoResIndex);

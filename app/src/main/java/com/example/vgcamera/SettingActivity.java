@@ -61,7 +61,7 @@ public class SettingActivity extends AppCompatActivity {
         updateTextsByLanguage(currentLanguage);
         setupSpinnersByLanguage(currentLanguage);
         spinnerPhotoRes.setSelection(prefs.getInt("photo_resolution_index", 2)); // default: High
-        spinnerVideoRes.setSelection(prefs.getInt("video_resolution_index", 2));
+        spinnerVideoRes.setSelection(prefs.getInt("video_resolution_index", 0));
 
         spinnerPhotoRes.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {

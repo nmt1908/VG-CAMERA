@@ -24,8 +24,6 @@
 
     <string-array name="video_resolutions_en">
         <item>Low (720x480)(SD)</item>
-        <item>Medium (1280x720)(HD)</item>
-        <item>High (1920x1080)(FHD)</item>
     </string-array>
     <string-array name="photo_resolutions_vi">
         <item>Thấp (640x480)</item>
@@ -35,8 +33,6 @@
 
     <string-array name="video_resolutions_vi">
         <item>Thấp (720x480)(SD)</item>
-        <item>Trung bình (1280x720)(HD)</item>
-        <item>Cao (1920x1080)(FHD)</item>
     </string-array>
     <string-array name="photo_resolutions_cn">
         <item>低 (640x480)</item>
@@ -46,8 +42,6 @@
 
     <string-array name="video_resolutions_cn">
         <item>低 (720x480)(SD)</item>
-        <item>中 (1280x720)(HD)</item>
-        <item>高 (1920x1080)(FHD)</item>
     </string-array>
 
 

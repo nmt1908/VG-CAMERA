@@ -202,8 +202,8 @@ public class MenuActivity extends AppCompatActivity {
         });
 
         int photoResIndex = prefs.getInt("photo_resolution_index", 2);
-        int videoResIndex = prefs.getInt("video_resolution_index", 2);
-        if (photoResIndex == 0 || photoResIndex == 1 || videoResIndex == 0 || videoResIndex == 1) {
+        int videoResIndex = prefs.getInt("video_resolution_index", 0);
+        if (photoResIndex == 0 || photoResIndex == 1 ) {
             showNotification("You have selected low or medium resolution!");
         }
     }

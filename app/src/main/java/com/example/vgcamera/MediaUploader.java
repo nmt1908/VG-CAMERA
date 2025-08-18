@@ -172,7 +172,7 @@ public class MediaUploader {
                 RequestBody body = RequestBody.create(payload.toString(), MediaType.parse("application/json"));
 
                 Request request = new Request.Builder()
-                        .url("http://gmo021.cansportsvg.com/api/camera-api/notifyUploadComplete")
+                        .url("http://gmo021.cansportsvg.com/api/camera-api/notifyUploadComplete2")
                         .post(body)
                         .build();
 
@@ -256,7 +256,7 @@ public class MediaUploader {
             RequestBody requestBody = builder.build();
 
             Request request = new Request.Builder()
-                    .url("http://gmo021.cansportsvg.com/api/camera-api/uploadMediaForAndroidApp")
+                    .url("http://gmo021.cansportsvg.com/api/camera-api/uploadMediaForAndroidApp2")
                     .post(requestBody)
                     .build();
 

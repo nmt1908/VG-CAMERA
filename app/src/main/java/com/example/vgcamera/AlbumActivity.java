@@ -202,7 +202,7 @@ public class AlbumActivity extends AppCompatActivity {
                         R.drawable.ic_x_circle,
                         R.color.red,
                         "Tải lên thất bại",
-                        "Thông tin tài khoản của bạn chưa được cập nhật. Vui lòng liên hệ PS",
+                        "Thông tin tài khoản của bạn chưa được cập nhật. Vui lòng liên hệ PS#172",
                         "OK",
                         null
                 );

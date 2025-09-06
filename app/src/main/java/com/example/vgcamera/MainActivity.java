@@ -208,7 +208,7 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
                             .build();
 
                     okhttp3.Request req = new okhttp3.Request.Builder()
-                            .url("http://gmo021.cansportsvg.com/api/camera-api/doLogin")
+                            .url("http://10.1.16.89/api/camera-api/doLogin")
                             .post(form)
                             .build();
 
@@ -260,7 +260,7 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
         new Thread(() -> {
             try {
                 // URL update.json giống APK
-                URL url = new URL("http://gmo021.cansportsvg.com/privated/androidapp/update.json");
+                URL url = new URL("http://10.1.16.89/privated/androidapp/update.json");
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
                 conn.setRequestMethod("GET");
                 conn.connect();
@@ -275,7 +275,7 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
                 int remoteCode = obj.getInt("version_code");
                 String versionName = obj.getString("version_name");
                 String notes = obj.getString("release_notes");
-                final String apkUrl = "http://gmo021.cansportsvg.com/privated/androidapp/" + obj.getString("apk_file");
+                final String apkUrl = "http://10.1.16.89/privated/androidapp/" + obj.getString("apk_file");
 
                 int localCode = getPackageManager().getPackageInfo(getPackageName(), 0).versionCode;
                 if (remoteCode > localCode) {

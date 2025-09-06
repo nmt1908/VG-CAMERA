@@ -4,7 +4,7 @@
         <domain includeSubdomains="true">10.13.32.51</domain>
     </domain-config>
     <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="true">gmo021.cansportsvg.com</domain>
+        <domain includeSubdomains="true">10.1.16.89</domain>
     </domain-config>
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="true">10.1.16.23</domain>

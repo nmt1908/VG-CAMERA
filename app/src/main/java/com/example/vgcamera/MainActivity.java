@@ -92,6 +92,8 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
 
     private LinearLayout loadingContainer, userInfoPanel;
     private ProgressBar loadingSpinner;
+    private volatile boolean isLoginDialogShowing = false; // đang mở dialog login?
+    private boolean navigatingNext = false;
     private TextView alertTextView, labelName, nameTextView, labelCardId, cardIDTextView, labelSimilarity, similarityTextView, appTitle;
     private ImageView appLogo;
 
@@ -151,7 +153,107 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
         } else {
             ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.CAMERA}, 101);
         }
+        if (appLogo != null) {
+            appLogo.setOnClickListener(v -> showLoginDialog());
+        }
     }
+    private void showLoginDialog() {
+        if (isLoginDialogShowing) return;   // tránh mở trùng
+        isLoginDialogShowing = true;
+
+        stopCamera(); // <<< DỪNG CAMERA TRƯỚC KHI MỞ DIALOG
+
+        View view = getLayoutInflater().inflate(R.layout.dialog_login, null, false);
+
+        final android.widget.EditText etUsername = view.findViewById(R.id.etUsername);
+        final android.widget.EditText etPassword = view.findViewById(R.id.etPassword);
+        final Button btnLogin = view.findViewById(R.id.btnLogin);
+
+        AlertDialog dlg = new AlertDialog.Builder(this)
+                .setView(view)
+                .setCancelable(true)
+                .create();
+
+        if (dlg.getWindow() != null) {
+            dlg.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
+        }
+
+        // Nếu user đóng/cancel dialog mà chưa chuyển màn → khởi động lại camera
+        dlg.setOnCancelListener(d -> {
+            isLoginDialogShowing = false;
+            if (!navigatingNext) startCamera();
+        });
+        dlg.setOnDismissListener(d -> {
+            isLoginDialogShowing = false;
+            if (!navigatingNext) startCamera();
+        });
+
+        Runnable doSubmit = () -> {
+            String user = etUsername.getText() != null ? etUsername.getText().toString().trim() : "";
+            String pass = etPassword.getText() != null ? etPassword.getText().toString() : "";
+
+            if (user.isEmpty() || pass.isEmpty()) {
+                Toast.makeText(MainActivity.this, "Nhập tài khoản và mật khẩu", Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            btnLogin.setEnabled(false);
+
+            new Thread(() -> {
+                try {
+                    okhttp3.RequestBody form = new okhttp3.MultipartBody.Builder()
+                            .setType(okhttp3.MultipartBody.FORM)
+                            .addFormDataPart("username", user)
+                            .addFormDataPart("password", pass)
+                            .build();
+
+                    okhttp3.Request req = new okhttp3.Request.Builder()
+                            .url("http://gmo021.cansportsvg.com/api/camera-api/doLogin")
+                            .post(form)
+                            .build();
+
+                    OkHttpClient client = httpClient.newBuilder()
+                            .callTimeout(10, TimeUnit.SECONDS)
+                            .build();
+
+                    try (okhttp3.Response resp = client.newCall(req).execute()) {
+                        if (!resp.isSuccessful()) {
+                            runOnUiThread(() -> {
+                                btnLogin.setEnabled(true);
+                                Toast.makeText(MainActivity.this, "Login lỗi: " + resp.code(), Toast.LENGTH_LONG).show();
+                            });
+                            return;
+                        }
+
+                        String body = resp.body() != null ? resp.body().string() : "{}";
+                        JSONObject j = new JSONObject(body);
+
+                        String name  = j.optString("name", user);
+                        String empno = j.optString("empno", j.optString("username", user)); // cardID = empno
+                        User activeUser = new User(name, empno, "100%");
+
+                        runOnUiThread(() -> {
+                            try { dlg.dismiss(); } catch (Exception ignore) {}
+                            goToNextScreen(activeUser); // sẽ không restart camera vì navigatingNext=true
+                        });
+                    }
+                } catch (Exception ex) {
+                    Log.e("LoginDialog", "Login error: " + ex.getMessage(), ex);
+                    runOnUiThread(() -> {
+                        btnLogin.setEnabled(true);
+                        Toast.makeText(MainActivity.this, "Không gọi được login: " + ex.getMessage(), Toast.LENGTH_LONG).show();
+                    });
+                }
+            }).start();
+        };
+
+        btnLogin.setOnClickListener(v -> doSubmit.run());
+        etPassword.setOnEditorActionListener((tv, actionId, event) -> { doSubmit.run(); return true; });
+
+        dlg.show();
+    }
+
+
 
     // ====== APK-like: Update flow ======
     private void checkAndUpdateApp() {
@@ -600,6 +702,37 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
             }
         }).start();
     }
+    private void goToNextScreen(User activeUser) {
+        navigatingNext = true;  // <<< thêm dòng này
+
+        runOnUiThread(() -> {
+            labelName.setText("Name:");
+            nameTextView.setText(activeUser.getName());
+            labelCardId.setText("Card ID:");
+            cardIDTextView.setText(activeUser.getCardId());
+            labelSimilarity.setText("Similarity:");
+            similarityTextView.setText(activeUser.getSimilarity());
+
+            labelName.setVisibility(View.VISIBLE);
+            nameTextView.setVisibility(View.VISIBLE);
+            labelCardId.setVisibility(View.VISIBLE);
+            cardIDTextView.setVisibility(View.VISIBLE);
+            labelSimilarity.setVisibility(View.VISIBLE);
+            similarityTextView.setVisibility(View.VISIBLE);
+
+            alertTextView.setText("Login successful");
+            userInfoPanel.setVisibility(View.VISIBLE);
+            userInfoPanel.postDelayed(() -> userInfoPanel.setVisibility(View.GONE), 1500);
+
+            Intent intent = new Intent(MainActivity.this, MenuActivity.class);
+            intent.putExtra("activeUser", activeUser);
+            intent.putExtra("show_report", true);
+            intent.putExtra("camera_id", currentCameraId);
+            startActivity(intent);
+            finish();
+        });
+    }
+
 
     private void handleRecognitionFail() {
         runOnUiThread(() -> {

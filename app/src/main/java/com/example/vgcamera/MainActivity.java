@@ -573,7 +573,7 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
                         .build();
 
                 Request primaryReq = new Request.Builder()
-                        .url("http://10.13.32.51:5001/recognize-anti-spoofing")
+                        .url("http://10.13.34.166:5001/recognize-anti-spoofing")
                         .addHeader("X-API-Key", "vg_login_app")
                         .addHeader("X-Time", currentTime)
                         .post(primaryBody)
@@ -585,7 +585,7 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
 
                 String responseBody;
                 try {
-                    Log.d("TIMECALL", "🌐 Calling primary API (port 5001): http://10.13.32.51:5001/recognize-anti-spoofing");
+                    Log.d("TIMECALL", "🌐 Calling primary API (port 5001): http://10.13.34.166:5001/recognize-anti-spoofing");
                     long t0 = System.currentTimeMillis();
                     response = clientWithTimeout.newCall(primaryReq).execute();
                     Log.d("TIMECALL", "✅ Primary API responded in " + (System.currentTimeMillis() - t0) + " ms");

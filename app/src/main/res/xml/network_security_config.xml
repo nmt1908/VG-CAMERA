@@ -4,6 +4,9 @@
         <domain includeSubdomains="true">10.13.34.166</domain>
     </domain-config>
     <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">10.13.34.176</domain>
+    </domain-config>
+    <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="true">10.1.16.89</domain>
     </domain-config>
     <domain-config cleartextTrafficPermitted="true">

@@ -1,6 +1,8 @@
 package com.example.vgcamera;
 
 import android.graphics.Bitmap;
+import android.graphics.Matrix;
+import android.media.ExifInterface;
 import android.media.MediaMetadataRetriever;
 import android.net.Uri;
 import android.os.Handler;
@@ -16,6 +18,7 @@ import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.InputStream;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
@@ -110,30 +113,101 @@ public class MediaUploader {
     private boolean uploadImageBatch(List<MediaItem> imageBatch, int startIndex) {
         try {
             JSONArray dataArray = new JSONArray();
-            MultipartBody.Builder builder = new MultipartBody.Builder().setType(MultipartBody.FORM);
 
             for (int i = 0; i < imageBatch.size(); i++) {
                 MediaItem item = imageBatch.get(i);
                 Uri uri = Uri.parse(item.uri);
-                Log.d(TAG, "Ảnh uri: " + item.uri);
 
-                Bitmap bitmap = MediaStore.Images.Media.getBitmap(activity.getContentResolver(), uri);
+                // 1. Load bitmap
+                Bitmap bitmap = MediaStore.Images.Media.getBitmap(
+                        activity.getContentResolver(), uri
+                );
+
+                // 2. Read EXIF orientation
+                InputStream input = activity.getContentResolver().openInputStream(uri);
+                ExifInterface exif = new ExifInterface(input);
+
+                int orientation = exif.getAttributeInt(
+                        ExifInterface.TAG_ORIENTATION,
+                        ExifInterface.ORIENTATION_NORMAL
+                );
+
+                if (input != null) input.close();
+
+                // 3. Rotate bitmap if needed
+                Matrix matrix = new Matrix();
+                switch (orientation) {
+                    case ExifInterface.ORIENTATION_ROTATE_90:
+                        matrix.postRotate(90);
+                        break;
+                    case ExifInterface.ORIENTATION_ROTATE_180:
+                        matrix.postRotate(180);
+                        break;
+                    case ExifInterface.ORIENTATION_ROTATE_270:
+                        matrix.postRotate(270);
+                        break;
+                }
+
+                Bitmap rotatedBitmap = bitmap;
+                if (!matrix.isIdentity()) {
+                    rotatedBitmap = Bitmap.createBitmap(
+                            bitmap,
+                            0, 0,
+                            bitmap.getWidth(),
+                            bitmap.getHeight(),
+                            matrix,
+                            true
+                    );
+                    bitmap.recycle(); // giải phóng bitmap gốc
+                }
+
+                // 4. Encode base64 (bitmap đã xoay)
                 ByteArrayOutputStream stream = new ByteArrayOutputStream();
-                bitmap.compress(Bitmap.CompressFormat.JPEG, 90, stream);
-                String base64 = Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP);
+                rotatedBitmap.compress(Bitmap.CompressFormat.JPEG, 90, stream);
+                String base64 = Base64.encodeToString(
+                        stream.toByteArray(),
+                        Base64.NO_WRAP
+                );
 
+                rotatedBitmap.recycle();
+                stream.close();
+
+                // 5. Build JSON object
                 JSONObject photo = new JSONObject();
                 photo.put("photo", "data:image/jpeg;base64," + base64);
                 photo.put("pos", activity.getExifLocationFromUri(uri));
-                photo.put("index", startIndex + i); // 👈 Thêm index toàn cục vào JSON
+                photo.put("index", startIndex + i);
+
                 dataArray.put(photo);
             }
 
             JSONObject payload = buildBasePayload();
             payload.put("data", dataArray);
-            builder.addFormDataPart("payload", payload.toString());
 
-            return sendRequest(builder);
+            MediaType JSON = MediaType.parse("application/json; charset=utf-8");
+            RequestBody body = RequestBody.create(payload.toString(), JSON);
+
+            Request request = new Request.Builder()
+                    .url("http://10.13.34.176:8081/api/camera-api/uploadMediaForAndroidApp2")
+                    .post(body)
+                    .build();
+
+            Log.d(TAG, "Sending JSON upload to: " + request.url());
+
+            Response response = client.newCall(request).execute();
+
+            if (!response.isSuccessful()) {
+                Log.e(TAG, "Upload thất bại: HTTP " + response.code());
+                String errorBody = response.body() != null
+                        ? response.body().string()
+                        : "null";
+                Log.e(TAG, "Response error body: " + errorBody);
+            } else {
+                Log.d(TAG, "Upload thành công: HTTP " + response.code());
+            }
+
+            return response.isSuccessful();
+
         } catch (Exception e) {
             Log.e(TAG, "Exception in uploadImageBatch", e);
             return false;
@@ -141,11 +215,14 @@ public class MediaUploader {
     }
 
 
+
+
+
     private void uploadVideosOneByOne(List<MediaItem> videos, int index) {
         if (index >= videos.size()) {
             progressDialog.dismiss();
             activity.showUploadSuccessDialog();
-            notifyUploadCompleted();
+//            notifyUploadCompleted();
             return;
         }
 
@@ -256,7 +333,8 @@ public class MediaUploader {
             RequestBody requestBody = builder.build();
 
             Request request = new Request.Builder()
-                    .url("http://gmo021.cansportsvg.com/api/camera-api/uploadMediaForAndroidApp2")
+//                    .url("http://gmo021.cansportsvg.com/api/camera-api/uploadMediaForAndroidApp2")
+                    .url("http://10.13.34.176:8081/api/camera-api/uploadMediaForAndroidApp2")
                     .post(requestBody)
                     .build();
 

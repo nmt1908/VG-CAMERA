@@ -21,6 +21,7 @@ import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -35,6 +36,7 @@ import androidx.core.view.WindowInsetsCompat;
 
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -88,7 +90,7 @@ public class MenuActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         EdgeToEdge.enable(this);
-        getWindow().setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE);
+        // getWindow().setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE);
 
         newUser = (User) getIntent().getSerializableExtra("activeUser");
         if (newUser == null) {
@@ -206,6 +208,18 @@ public class MenuActivity extends AppCompatActivity {
         if (photoResIndex == 0 || photoResIndex == 1 ) {
             showNotification("You have selected low or medium resolution!");
         }
+
+        // ✅ Only fetch approved reasons if not already stored (first login from MainActivity)
+        String existingReasons = prefs.getString("approved_reasons_json", null);
+        if (existingReasons == null) {
+            // First time login - fetch reasons
+            String empno = newUser.getCardId();
+            String currentDate = new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(new Date());
+            fetchApprovedReasons(empno, currentDate);
+            Log.d("APPROVED_REASONS", "🔄 First login - fetching approved reasons");
+        } else {
+            Log.d("APPROVED_REASONS", "✅ Reasons already exist - skipping API call");
+        }
     }
     public void getInfoByEmpNo(String cardId, boolean showReport) {
         fetchInfo(cardId, showReport, true); // lần đầu, cho phép thử lại
@@ -230,6 +244,8 @@ public class MenuActivity extends AppCompatActivity {
             @Override
             public void onFailure(@NotNull Call call, @NotNull IOException e) {
                 Log.e("API_CALL", "❌ Network failure for cardId = " + cardId + ": " + e.getMessage());
+                showAccountNotFoundDialog();
+
             }
 
             @Override
@@ -250,6 +266,8 @@ public class MenuActivity extends AppCompatActivity {
                         fetchInfo(fallbackCardId, showReport, false);
                     } else {
                         Log.e("API_CALL", "❌ No fallback or fallback already attempted.");
+                        showAccountNotFoundDialog();
+
                     }
                 }
             }
@@ -346,6 +364,23 @@ public class MenuActivity extends AppCompatActivity {
 
         dialog.show();
     }
+    private void showAccountNotFoundDialog() {
+        runOnUiThread(() -> showCustomDialog(
+                R.drawable.ic_x_circle,
+                R.color.red,
+                "Thông báo",
+                "Tài khoản của bạn chưa tồn tại. Vui lòng đăng ký hoặc liên hệ PS #172",
+                "OK",
+                () -> {
+                    // optional: đá về màn login
+                    Intent intent = new Intent(MenuActivity.this, MainActivity.class);
+                    intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                    startActivity(intent);
+                    finish();
+                }
+        ));
+    }
+
     public void showCustomDialog(int iconResId, int iconTintColorResId,
                                  String title, String message,
                                  String buttonText, Runnable onClose) {
@@ -650,6 +685,290 @@ public class MenuActivity extends AppCompatActivity {
                 })
                 .setNegativeButton(textExitNegative, null)
                 .show();
+    }
+
+
+    // ========== ✅ NEW: Approved Reasons API Integration ==========
+
+    /**
+     * Fetch approved reasons from API
+     */
+    private void fetchApprovedReasons(String empno, String date) {
+        OkHttpClient client = new OkHttpClient();
+        String url = "http://gmo021.cansportsvg.com/api/camera-api/getApprovedReasonsByEmpnoAndDate";
+
+        RequestBody formBody = new FormBody.Builder()
+                .add("empno", empno)
+                .add("date", date)
+                .build();
+
+        Request request = new Request.Builder()
+                .url(url)
+                .post(formBody)
+                .build();
+
+        Log.d("APPROVED_REASONS", "🌐 Fetching approved reasons for empno=" + empno + ", date=" + date);
+
+        client.newCall(request).enqueue(new Callback() {
+            @Override
+            public void onFailure(@NotNull Call call, @NotNull IOException e) {
+                Log.e("APPROVED_REASONS", "❌ Network failure: " + e.getMessage());
+                // Don't block user, just log the error
+            }
+
+            @Override
+            public void onResponse(@NotNull Call call, @NotNull Response response) throws IOException {
+                if (response.isSuccessful()) {
+                    String body = response.body().string();
+                    Log.d("APPROVED_REASONS", "📥 Response: " + body);
+                    try {
+                        JSONObject json = new JSONObject(body);
+                        runOnUiThread(() -> handleApprovedReasonsResponse(json));
+                    } catch (JSONException e) {
+                        Log.e("APPROVED_REASONS", "❌ JSON parse error: " + e.getMessage());
+                    }
+                } else {
+                    Log.w("APPROVED_REASONS", "⚠️ API failed with code: " + response.code());
+                }
+            }
+        });
+    }
+
+    /**
+     * Handle API response for approved reasons
+     */
+    private void handleApprovedReasonsResponse(JSONObject response) {
+        try {
+            boolean ok = response.optBoolean("ok", false);
+            int countOrders = response.optInt("count_orders", 0);
+
+            Log.d("APPROVED_REASONS", "📊 ok=" + ok + ", count_orders=" + countOrders);
+
+            if (!ok || countOrders == 0) {
+                // Show error dialog and logout
+                showNoOrderDialog();
+                return;
+            }
+
+            JSONArray orders = response.getJSONArray("orders");
+
+            if (countOrders == 1) {
+                // Auto-save reasons from the single order
+                JSONObject order = orders.getJSONObject(0);
+                JSONArray reasons = order.getJSONArray("reasons");
+                saveReasonsToPreferences(reasons);
+                Log.d("APPROVED_REASONS", "✅ Auto-saved reasons from single order");
+            } else if (countOrders == 2) {
+                // Show dialog to let user choose
+                showOrderSelectionDialog(orders);
+            }
+
+        } catch (JSONException e) {
+            Log.e("APPROVED_REASONS", "❌ Error handling response: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Show dialog when no orders found
+     */
+    private void showNoOrderDialog() {
+        String title, message, buttonText;
+
+        switch (currentLanguage) {
+            case "vi":
+                title = "Thông báo";
+                message = "Bạn chưa có đơn đăng ký chụp ảnh hoặc đơn chưa được duyệt. Vui lòng liên hệ TIT#172";
+                buttonText = "OK";
+                break;
+            case "cn":
+                title = "通知";
+                message = "您沒有已批准的照片註冊訂單。請聯繫 TIT#172";
+                buttonText = "確定";
+                break;
+            default: // en
+                title = "Notification";
+                message = "You don't have any approved photo registration order. Please contact TIT#172";
+                buttonText = "OK";
+                break;
+        }
+
+        showCustomDialog(
+                R.drawable.ic_x_circle,
+                R.color.red,
+                title,
+                message,
+                buttonText,
+                () -> {
+                    // Logout on close
+                    SharedPreferences prefs = getSharedPreferences("VGCameraPrefs", MODE_PRIVATE);
+                    prefs.edit().clear().apply();
+
+                    Intent intent = new Intent(MenuActivity.this, MainActivity.class);
+                    intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                    startActivity(intent);
+                    finish();
+                }
+        );
+    }
+
+    /**
+     * Show dialog to select between 2 orders
+     */
+    private void showOrderSelectionDialog(JSONArray orders) {
+        try {
+            View dialogView = getLayoutInflater().inflate(R.layout.dialog_order_selection, null);
+
+            TextView dialogTitle = dialogView.findViewById(R.id.dialogTitle);
+            TextView dialogMessage = dialogView.findViewById(R.id.dialogMessage);
+            Button btnConfirm = dialogView.findViewById(R.id.btnConfirm);
+
+            // Set title and message based on language
+            String title, message, confirmText;
+            switch (currentLanguage) {
+                case "vi":
+                    title = "Chọn lý do chụp ảnh";
+                    message = "Do bạn có nhiều đơn trong ngày, nên hãy chọn lý do chụp ảnh nhé.";
+                    confirmText = "Xác nhận";
+                    break;
+
+                case "cn":
+                    title = "選擇拍照原因";
+                    message = "由於您當天有多筆申請，請選擇拍照的原因。";
+                    confirmText = "確認";
+                    break;
+
+                default: // en
+                    title = "Select Photo Reason";
+                    message = "Since you have multiple orders on the same day, please select the reason for taking the photo.";
+                    confirmText = "Confirm";
+                    break;
+            }
+
+
+            dialogTitle.setText(title);
+            dialogMessage.setText(message);
+            btnConfirm.setText(confirmText);
+
+            // Get the 2 order item views from XML
+            View orderItem1 = dialogView.findViewById(R.id.orderItem1);
+            View orderItem2 = dialogView.findViewById(R.id.orderItem2);
+
+            // Populate Order 1
+            JSONObject order1 = orders.getJSONObject(0);
+            JSONArray reasons1 = order1.getJSONArray("reasons");
+            populateOrderItem(orderItem1, order1);
+
+            // Populate Order 2
+            JSONObject order2 = orders.getJSONObject(1);
+            JSONArray reasons2 = order2.getJSONArray("reasons");
+            populateOrderItem(orderItem2, order2);
+
+            // Track selected item (default to first)
+            final int[] selectedIndex = {0};
+            updateCardSelection(orderItem1, orderItem2, 0);
+
+            // Set click listeners
+            orderItem1.setOnClickListener(v -> {
+                selectedIndex[0] = 0;
+                updateCardSelection(orderItem1, orderItem2, 0);
+            });
+
+            orderItem2.setOnClickListener(v -> {
+                selectedIndex[0] = 1;
+                updateCardSelection(orderItem1, orderItem2, 1);
+            });
+
+            AlertDialog dialog = new AlertDialog.Builder(this)
+                    .setView(dialogView)
+                    .setCancelable(false)
+                    .create();
+
+            // ✅ Set rounded corner background
+            if (dialog.getWindow() != null) {
+                dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
+            }
+
+            btnConfirm.setOnClickListener(v -> {
+                JSONArray selectedReasons = selectedIndex[0] == 0 ? reasons1 : reasons2;
+                saveReasonsToPreferences(selectedReasons);
+                dialog.dismiss();
+                Log.d("APPROVED_REASONS", "✅ User selected order " + (selectedIndex[0] + 1) + ", reasons saved");
+            });
+
+            dialog.show();
+
+        } catch (JSONException e) {
+            Log.e("APPROVED_REASONS", "❌ Error showing order selection dialog: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Update card selection visual state
+     */
+    private void updateCardSelection(View card1, View card2, int selectedIndex) {
+        ImageView check1 = card1.findViewById(R.id.checkIcon);
+        ImageView check2 = card2.findViewById(R.id.checkIcon);
+
+        if (selectedIndex == 0) {
+            check1.setVisibility(View.VISIBLE);
+            check2.setVisibility(View.GONE);
+            card1.setAlpha(1.0f);
+            card2.setAlpha(0.6f);
+        } else {
+            check1.setVisibility(View.GONE);
+            check2.setVisibility(View.VISIBLE);
+            card1.setAlpha(0.6f);
+            card2.setAlpha(1.0f);
+        }
+    }
+
+    /**
+     * Helper method to populate an order item view with data
+     */
+    private void populateOrderItem(View itemView, JSONObject order) throws JSONException {
+        TextView tvOrderTitle = itemView.findViewById(R.id.tvOrderTitle);
+        TextView tvReasonsLabel = itemView.findViewById(R.id.tvReasonsLabel);
+        LinearLayout layoutReasons = itemView.findViewById(R.id.layoutReasons);
+
+        int orderId = order.getInt("order_id");
+        JSONArray reasons = order.getJSONArray("reasons");
+
+        // Set order title based on language
+        String orderTitle;
+        if (currentLanguage.equals("vi")) {
+            orderTitle = "Đơn PAB #" + orderId;
+        } else if (currentLanguage.equals("cn")) {
+            orderTitle = "PAB訂單 #" + orderId;
+        } else {
+            orderTitle = "Order #" + orderId;
+        }
+        tvOrderTitle.setText(orderTitle);
+
+        // Set reasons label
+        String reasonsLabel = currentLanguage.equals("vi") ? "Lý do:" :
+                              currentLanguage.equals("cn") ? "原因:" : "Reasons:";
+        tvReasonsLabel.setText(reasonsLabel);
+
+        // Clear existing reasons (if any) and add new ones
+        layoutReasons.removeAllViews();
+        for (int j = 0; j < reasons.length(); j++) {
+            JSONObject reason = reasons.getJSONObject(j);
+            TextView tvReason = new TextView(this);
+            tvReason.setText("• " + reason.getString(currentLanguage));
+            tvReason.setTextSize(14);
+            tvReason.setTextColor(0xFF616161);
+            tvReason.setPadding(0, 6, 0, 6);
+            layoutReasons.addView(tvReason);
+        }
+    }
+
+    /**
+     * Save reasons array to SharedPreferences
+     */
+    private void saveReasonsToPreferences(JSONArray reasons) {
+        SharedPreferences prefs = getSharedPreferences("VGCameraPrefs", MODE_PRIVATE);
+        prefs.edit().putString("approved_reasons_json", reasons.toString()).apply();
+        Log.d("APPROVED_REASONS", "💾 Saved to SharedPreferences: " + reasons.toString());
     }
 
 

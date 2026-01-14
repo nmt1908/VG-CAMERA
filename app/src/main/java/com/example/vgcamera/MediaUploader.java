@@ -42,11 +42,30 @@ public class MediaUploader {
     private int totalMediaCount = 0;
     private int uploadedCount = 0;
     private int videoGlobalIndex = 0;
+    private final List<Purpose> selectedPurposes;
+    private final String currentLanguage;
 
 
-    public MediaUploader(AlbumActivity activity, JSONObject userJson) {
+//    public MediaUploader(AlbumActivity activity, JSONObject userJson) {
+//        this.activity = activity;
+//        this.userJson = userJson;
+//        this.client = new OkHttpClient.Builder()
+//                .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+//                .writeTimeout(10, java.util.concurrent.TimeUnit.MINUTES)
+//                .readTimeout(10, java.util.concurrent.TimeUnit.MINUTES)
+//                .build();
+//
+//        this.progressDialog = new CustomProgressDialog(activity);
+//        this.progressDialog.setMessage("Đang tải lên...");
+//        this.progressDialog.setCancelable(false);
+//    }
+    public MediaUploader(AlbumActivity activity, JSONObject userJson,
+                         List<Purpose> selectedPurposes, String currentLanguage) {
         this.activity = activity;
         this.userJson = userJson;
+        this.selectedPurposes = selectedPurposes != null ? selectedPurposes : new ArrayList<>();
+        this.currentLanguage = currentLanguage != null ? currentLanguage : "en";
+
         this.client = new OkHttpClient.Builder()
                 .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
                 .writeTimeout(10, java.util.concurrent.TimeUnit.MINUTES)
@@ -57,6 +76,7 @@ public class MediaUploader {
         this.progressDialog.setMessage("Đang tải lên...");
         this.progressDialog.setCancelable(false);
     }
+
 
     public void uploadSelectedMedia(List<MediaItem> selectedItems) {
         totalMediaCount = selectedItems.size();
@@ -256,7 +276,7 @@ public class MediaUploader {
             RequestBody requestBody = builder.build();
 
             Request request = new Request.Builder()
-                    .url("http://gmo021.cansportsvg.com/api/camera-api/uploadMediaForAndroidApp2")
+                    .url("http://gmo021.cansportsvg.com/api/camera-api/uploadMediaForAndroidApp3")
                     .post(requestBody)
                     .build();
 
@@ -279,6 +299,27 @@ public class MediaUploader {
         }
     }
 
+//    private JSONObject buildBasePayload() throws JSONException {
+//        JSONObject payload = new JSONObject();
+//        payload.put("empid", userJson.optInt("id"));
+//        payload.put("username", userJson.optString("username"));
+//        payload.put("password", userJson.optString("password"));
+//        payload.put("name", userJson.optString("name"));
+//        payload.put("email", userJson.optString("email"));
+//        payload.put("empno", userJson.optString("empno"));
+//        payload.put("high_dept", userJson.optString("high_dept"));
+//        payload.put("dept", userJson.optString("dept"));
+//        payload.put("folder", getOrCreateFolderName());
+//
+//        // ✅ add purposes array (full object)
+//        JSONArray purposes = new JSONArray();
+//        for (Purpose p : selectedPurposes) {
+//            purposes.put(p.toJson());
+//        }
+//        payload.put("purpose", purposes);
+//
+//        return payload;
+//    }
     private JSONObject buildBasePayload() throws JSONException {
         JSONObject payload = new JSONObject();
         payload.put("empid", userJson.optInt("id"));
@@ -290,8 +331,18 @@ public class MediaUploader {
         payload.put("high_dept", userJson.optString("high_dept"));
         payload.put("dept", userJson.optString("dept"));
         payload.put("folder", getOrCreateFolderName());
+
+        // ✅ add purposes array (full object)
+        JSONArray purposes = new JSONArray();
+        for (Purpose p : selectedPurposes) {
+            purposes.put(p.toJson());
+        }
+        payload.put("purpose", purposes);
+
         return payload;
     }
+
+
 
     private String getOrCreateFolderName() {
         long now = System.currentTimeMillis();

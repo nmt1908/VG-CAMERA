@@ -137,6 +137,11 @@ public class AlbumActivity extends AppCompatActivity {
     final float[] downY = new float[1];
     final long[] downTime = new long[1];
     String currentSSID;
+    
+    // ❌ OLD: Purpose dialog logic (now handled in MenuActivity)
+    // private final List<Purpose> purposeList = new ArrayList<>();
+    // private boolean[] purposeChecked;
+    // private final List<Purpose> selectedPurposes = new ArrayList<>();
 
 
     @Override
@@ -165,8 +170,18 @@ public class AlbumActivity extends AppCompatActivity {
             finish();
             return; // Dừng không chạy tiếp
         }
-        getSSIDAllowed();
 
+        // ✅ NEW: Validate approved reasons exist
+        String approvedReasons = prefs.getString("approved_reasons_json", null);
+        if (approvedReasons == null) {
+            Log.w("APPROVED_REASONS", "⚠️ No approved reasons found - redirecting to MenuActivity");
+            Toast.makeText(this, "Session expired. Please login again.", Toast.LENGTH_SHORT).show();
+            finish(); // Go back to MenuActivity
+            return;
+        }
+
+        getSSIDAllowed();
+        // ❌ OLD: fetchPurposes(); // Now handled in MenuActivity
 
         getInfoByEmpNo(newUser.getCardId());
         deleteButton.setOnClickListener(v -> {
@@ -177,7 +192,7 @@ public class AlbumActivity extends AppCompatActivity {
         uploadButton.setOnClickListener(v -> {
             String allowedSSIDsStr = TextUtils.join(", ", allowedSSIDs);
 
-            Log.d("CURRENT SSID",currentSSID);
+            Log.d("CURRENT SSID", currentSSID);
 
             if (currentSSID != null && currentSSID.startsWith("\"") && currentSSID.endsWith("\"")) {
                 currentSSID = currentSSID.substring(1, currentSSID.length() - 1);
@@ -190,12 +205,13 @@ public class AlbumActivity extends AppCompatActivity {
                         R.drawable.ic_x_circle,
                         R.color.red,
                         "Tải lên thất bại",
-                        "Wifi hiện tại không hợp lệ, Vui lòng kết nối đúng Wifi: "+ allowedSSIDsStr,
+                        "Wifi hiện tại không hợp lệ, Vui lòng kết nối đúng Wifi: " + allowedSSIDsStr,
                         "OK",
                         null
                 );
                 return;
             }
+
             if (userJson == null ||
                     !userJson.has("username") || !userJson.has("empno") || !userJson.has("name")) {
                 showCustomDialog(
@@ -209,32 +225,21 @@ public class AlbumActivity extends AppCompatActivity {
                 return;
             }
 
-            // Nếu đúng WiFi, tiếp tục như cũ
-            new AlertDialog.Builder(this)
-                    .setTitle(uploadDialogTitle)
-                    .setMessage(uploadDialogMessage)
-                    .setPositiveButton(yesText, (dialog, which) -> {
-                        uploadButton.setEnabled(false);
+            // ✅ lấy media đã chọn
+            List<MediaItem> selectedMedia = new ArrayList<>();
+            for (MediaItem item : mediaItems) {
+                if (item.isSelected) selectedMedia.add(item);
+            }
 
-                        List<MediaItem> selectedMedia = new ArrayList<>();
-                        for (MediaItem item : mediaItems) {
-                            if (item.isSelected) {
-                                selectedMedia.add(item);
-                            }
-                        }
+            if (selectedMedia.isEmpty()) {
+                Toast.makeText(this, "Chưa chọn ảnh/video", Toast.LENGTH_SHORT).show();
+                return;
+            }
 
-//                        uploadSelectedMedia(selectedMedia);
-                        new MediaUploader(
-                                AlbumActivity.this,
-                                userJson
-                        ).uploadSelectedMedia(selectedMedia);
-                        new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                            uploadButton.setEnabled(true);
-                        }, 2000);
-                    })
-                    .setNegativeButton(noText, null)
-                    .show();
+            // ✅ NEW: Load reasons from SharedPreferences and show confirm dialog
+            showUploadConfirmDialog(selectedMedia);
         });
+
 
 
 
@@ -306,6 +311,223 @@ public class AlbumActivity extends AppCompatActivity {
         updateTextsByLanguage(currentLanguage);
         checkPermissionsAndLoad();
     }
+
+    // ❌ OLD: Purpose dialog - now handled in MenuActivity
+    /*
+    private void showPurposeDialogThenConfirm(List<MediaItem> selectedMedia) {
+        if (purposeList.isEmpty() || purposeChecked == null) {
+            Toast.makeText(this, "Purpose chưa load xong", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        View dialogView = getLayoutInflater().inflate(R.layout.dialog_purpose_common, null);
+        builder.setView(dialogView);
+
+        ImageView icon = dialogView.findViewById(R.id.dialogIcon);
+        TextView titleView = dialogView.findViewById(R.id.dialogTitle);
+        TextView messageView = dialogView.findViewById(R.id.dialogMessage);
+        RecyclerView rv = dialogView.findViewById(R.id.rvPurposes);
+        Button btnCancel = dialogView.findViewById(R.id.btnCancel);
+        Button btnOk = dialogView.findViewById(R.id.btnOk);
+
+        icon.setImageResource(R.drawable.baseline_support_agent_24);
+        icon.setColorFilter(ContextCompat.getColor(this, R.color.bluesuccess));
+        titleView.setText(getPurposeDialogTitle());
+        titleView.setTextColor(ContextCompat.getColor(this, R.color.bluesuccess));
+
+        if ("vi".equals(currentLanguage)) {
+            messageView.setVisibility(View.VISIBLE);
+            messageView.setText("Vui lòng chọn ít nhất 1 lý do");
+        } else if ("cn".equals(currentLanguage)) {
+            messageView.setVisibility(View.VISIBLE);
+            messageView.setText("请至少选择一个原因");
+        } else {
+            messageView.setVisibility(View.VISIBLE);
+            messageView.setText("Please select at least one purpose");
+        }
+
+        rv.setLayoutManager(new androidx.recyclerview.widget.LinearLayoutManager(this));
+        PurposeAdapter purposeAdapter = new PurposeAdapter(
+                purposeList,
+                purposeChecked,
+                currentLanguage,
+                (pos, checked) -> { }
+        );
+        rv.setAdapter(purposeAdapter);
+
+        AlertDialog dialog = builder.create();
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
+        }
+        dialog.setCancelable(false);
+
+        btnCancel.setText(getLocalizedString("cancel"));
+        btnCancel.setOnClickListener(v -> dialog.dismiss());
+
+        btnOk.setText(getLocalizedString("ok"));
+        btnOk.setOnClickListener(v -> {
+            selectedPurposes.clear();
+            for (int i = 0; i < purposeChecked.length; i++) {
+                if (purposeChecked[i]) selectedPurposes.add(purposeList.get(i));
+            }
+
+            if (selectedPurposes.isEmpty()) {
+                showCustomDialog(
+                        R.drawable.ic_x_circle,
+                        R.color.red,
+                        "vi".equals(currentLanguage) ? "Thiếu lý do"
+                                : "cn".equals(currentLanguage) ? "缺少原因"
+                                : "Missing purpose",
+                        "vi".equals(currentLanguage) ? "Vui lòng chọn ít nhất 1 lý do."
+                                : "cn".equals(currentLanguage) ? "请至少选择一个原因。"
+                                : "Please select at least one purpose.",
+                        getLocalizedString("ok"),
+                        null
+                );
+                return;
+            }
+
+            dialog.dismiss();
+            showUploadConfirmDialog(selectedMedia);
+        });
+
+        dialog.show();
+    }
+    */
+
+
+    // ✅ NEW: Load reasons from SharedPreferences and upload
+    private void showUploadConfirmDialog(List<MediaItem> selectedMedia) {
+        // Load approved reasons from SharedPreferences
+        List<Purpose> approvedReasons = loadApprovedReasonsFromPreferences();
+        
+        new AlertDialog.Builder(this)
+                .setTitle(uploadDialogTitle)
+                .setMessage(uploadDialogMessage)
+                .setPositiveButton(yesText, (dialog, which) -> {
+                    uploadButton.setEnabled(false);
+
+                    new MediaUploader(
+                            AlbumActivity.this,
+                            userJson,
+                            approvedReasons,  // ✅ Use reasons from SharedPreferences
+                            currentLanguage
+                    ).uploadSelectedMedia(selectedMedia);
+                    logSelectedPurposesOnly(selectedMedia, approvedReasons);
+
+                    new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                        uploadButton.setEnabled(true);
+                    }, 2000);
+                })
+                .setNegativeButton(noText, null)
+                .show();
+    }
+    
+    /**
+     * Load approved reasons from SharedPreferences (saved in MenuActivity)
+     */
+    private List<Purpose> loadApprovedReasonsFromPreferences() {
+        List<Purpose> reasons = new ArrayList<>();
+        try {
+            String reasonsJson = prefs.getString("approved_reasons_json", null);
+            if (reasonsJson != null) {
+                JSONArray jsonArray = new JSONArray(reasonsJson);
+                reasons = Purpose.listFromJsonArray(jsonArray);
+                Log.d("APPROVED_REASONS", "✅ Loaded " + reasons.size() + " reasons from SharedPreferences");
+            } else {
+                Log.w("APPROVED_REASONS", "⚠️ No approved reasons found in SharedPreferences");
+            }
+        } catch (JSONException e) {
+            Log.e("APPROVED_REASONS", "❌ Error loading reasons: " + e.getMessage());
+        }
+        return reasons;
+    }
+    private void logSelectedPurposesOnly(List<MediaItem> selectedMedia, List<Purpose> purposes) {
+        try {
+            JSONArray purposesArr = new JSONArray();
+            for (Purpose p : purposes) {
+                purposesArr.put(p.toJson());
+            }
+
+            JSONObject preview = new JSONObject();
+            preview.put("empno", userJson != null ? userJson.optString("empno") : "null");
+            preview.put("name",  userJson != null ? userJson.optString("name") : "null");
+            preview.put("selected_media_count", selectedMedia != null ? selectedMedia.size() : 0);
+            preview.put("purpose", purposesArr);
+
+            Log.e("UPLOAD_PREVIEW", "===== PURPOSE PREVIEW (FROM SHAREDPREFERENCES) =====");
+            Log.e("UPLOAD_PREVIEW", preview.toString(2));
+            Log.e("UPLOAD_PREVIEW", "====================================================");
+        } catch (Exception e) {
+            Log.e("UPLOAD_PREVIEW", "logSelectedPurposesOnly error", e);
+        }
+    }
+
+    // ❌ OLD: Purpose dialog helper methods - now handled in MenuActivity
+    /*
+    private String getPurposeDialogTitle() {
+        if ("vi".equals(currentLanguage)) return "Chọn lý do (có thể chọn nhiều)";
+        if ("cn".equals(currentLanguage)) return "选择原因（可多选）";
+        return "Select purposes (multi-select)";
+    }
+
+    private void fetchPurposes() {
+        String url = "http://gmo021.cansportsvg.com/api/vg-pab/getPurpose";
+
+        OkHttpClient c = new OkHttpClient();
+        RequestBody emptyBody = RequestBody.create(new byte[0], null);
+
+        Request req = new Request.Builder()
+                .url(url)
+                .post(emptyBody)
+                .build();
+
+        c.newCall(req).enqueue(new okhttp3.Callback() {
+            @Override
+            public void onFailure(Call call, IOException e) {
+                Log.e("PURPOSE", "fetchPurposes failed: " + e.getMessage(), e);
+            }
+
+            @Override
+            public void onResponse(Call call, Response response) throws IOException {
+                int code = response.code();
+                String body = response.body() != null ? response.body().string() : "";
+
+                if (!response.isSuccessful()) {
+                    Log.e("PURPOSE", "fetchPurposes not successful: HTTP " + code);
+                    return;
+                }
+
+                try {
+                    JSONArray arr = new JSONArray(body);
+                    purposeList.clear();
+
+                    for (int i = 0; i < arr.length(); i++) {
+                        JSONObject o = arr.getJSONObject(i);
+
+                        int id = o.optInt("id");
+                        String vi = o.optString("vi");
+                        String en = o.optString("en");
+                        String cn = o.optString("cn");
+
+                        purposeList.add(new Purpose(id, vi, en, cn));
+                    }
+
+                    runOnUiThread(() -> {
+                        purposeChecked = new boolean[purposeList.size()];
+                        Log.d("PURPOSE", "Loaded purposes count = " + purposeList.size());
+                    });
+
+                } catch (JSONException e) {
+                    Log.e("PURPOSE", "parse error: " + e.getMessage(), e);
+                }
+            }
+        });
+    }
+    */
+
+
 
     private final BroadcastReceiver networkReceiver = new BroadcastReceiver() {
         @Override

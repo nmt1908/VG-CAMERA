@@ -38,6 +38,7 @@
         android:textColor="@color/orangeLogo"
         android:textSize="40sp"
         android:textStyle="bold"
+        android:fontFamily="sans-serif-medium"
         app:layout_constraintTop_toBottomOf="@id/logoImage"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
@@ -63,6 +64,7 @@
             android:textColor="@color/orangeLogo"
             android:textSize="32sp"
             android:textStyle="bold"
+            android:fontFamily="sans-serif-medium"
             android:textAlignment="center" />
 
         <TextView
@@ -73,6 +75,7 @@
             android:textColor="@color/orangeLogo"
             android:textSize="32sp"
             android:textStyle="bold"
+            android:fontFamily="sans-serif-medium"
             android:maxLines="2"
             android:ellipsize="none"
             android:textAlignment="center" />
@@ -92,6 +95,7 @@
         android:textColor="@color/orangeLogo"
         android:textSize="24sp"
         android:textStyle="bold"
+        android:fontFamily="sans-serif-medium"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintHorizontal_bias="0.0"
         app:layout_constraintStart_toStartOf="parent"
@@ -122,6 +126,8 @@
             android:text="Start Camera"
             android:textColor="@color/white"
             android:textSize="18sp"
+            android:fontFamily="sans-serif-medium"
+            android:textAllCaps="false"
             android:backgroundTint="@color/orangeLogo"
             app:layout_constraintTop_toTopOf="parent"
             app:layout_constraintStart_toStartOf="parent"
@@ -135,6 +141,8 @@
             android:text="Setting"
             android:textColor="@color/white"
             android:textSize="18sp"
+            android:fontFamily="sans-serif-medium"
+            android:textAllCaps="false"
             android:backgroundTint="@color/orangeLogo"
             app:layout_constraintTop_toBottomOf="@id/btnStartCamera"
             app:layout_constraintStart_toStartOf="parent"
@@ -147,6 +155,8 @@
             android:text="Exit"
             android:textColor="@color/white"
             android:textSize="18sp"
+            android:fontFamily="sans-serif-medium"
+            android:textAllCaps="false"
             android:backgroundTint="@color/orangeLogo"
             app:layout_constraintTop_toBottomOf="@id/btnSetting"
             app:layout_constraintStart_toStartOf="parent"

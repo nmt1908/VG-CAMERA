@@ -20,6 +20,12 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.io.IOException;
+import okio.Buffer;
+import okio.BufferedSink;
+import okio.ForwardingSink;
+import okio.Okio;
+import okio.Sink;
 
 import okhttp3.MediaType;
 import okhttp3.MultipartBody;
@@ -153,7 +159,17 @@ public class MediaUploader {
             payload.put("data", dataArray);
             builder.addFormDataPart("payload", payload.toString());
 
-            return sendRequest(builder);
+            int batchSize = imageBatch.size();
+            RequestBody requestBody = builder.build();
+            ProgressRequestBody progressBody = new ProgressRequestBody(requestBody, (bytesWritten, contentLength) -> {
+                int basePercent = (int) (((float) uploadedCount / totalMediaCount) * 100);
+                int currentBatchPercent = (int) (((float) batchSize / totalMediaCount) * 100);
+                float progressFraction = contentLength > 0 ? (float) bytesWritten / contentLength : 0;
+                int currentPercent = basePercent + (int) (currentBatchPercent * progressFraction);
+                new Handler(Looper.getMainLooper()).post(() -> progressDialog.updateProgress(Math.min(currentPercent, 100)));
+            });
+
+            return sendRequest(progressBody);
         } catch (Exception e) {
             Log.e(TAG, "Exception in uploadImageBatch", e);
             return false;
@@ -263,7 +279,16 @@ public class MediaUploader {
 
             videoGlobalIndex++; // 👈 tăng để không trùng
 
-            return sendRequest(builder);
+            RequestBody requestBody = builder.build();
+            ProgressRequestBody progressBody = new ProgressRequestBody(requestBody, (bytesWritten, contentLength) -> {
+                int basePercent = (int) (((float) uploadedCount / totalMediaCount) * 100);
+                int currentBatchPercent = (int) (1.0f / totalMediaCount * 100);
+                float progressFraction = contentLength > 0 ? (float) bytesWritten / contentLength : 0;
+                int currentPercent = basePercent + (int) (currentBatchPercent * progressFraction);
+                new Handler(Looper.getMainLooper()).post(() -> progressDialog.updateProgress(Math.min(currentPercent, 100)));
+            });
+
+            return sendRequest(progressBody);
         } catch (Exception e) {
             Log.e(TAG, "Exception in uploadSingleVideo", e);
             return false;
@@ -271,10 +296,8 @@ public class MediaUploader {
     }
 
 
-    private boolean sendRequest(MultipartBody.Builder builder) {
+    private boolean sendRequest(RequestBody requestBody) {
         try {
-            RequestBody requestBody = builder.build();
-
             Request request = new Request.Builder()
                     .url("http://gmo021.cansportsvg.com/api/camera-api/uploadMediaForAndroidApp3")
                     .post(requestBody)
@@ -360,5 +383,55 @@ public class MediaUploader {
         String empno = userJson.optString("empno");
         String time = new SimpleDateFormat("ddMMyy-HHmmss").format(new Date());
         return empno + "-" + time;
+    }
+
+    private interface ProgressListener {
+        void onProgress(long bytesWritten, long contentLength);
+    }
+
+    private static class ProgressRequestBody extends RequestBody {
+        private final RequestBody requestBody;
+        private final ProgressListener listener;
+
+        ProgressRequestBody(RequestBody requestBody, ProgressListener listener) {
+            this.requestBody = requestBody;
+            this.listener = listener;
+        }
+
+        @Override
+        public MediaType contentType() {
+            return requestBody.contentType();
+        }
+
+        @Override
+        public long contentLength() throws IOException {
+            return requestBody.contentLength();
+        }
+
+        @Override
+        public void writeTo(BufferedSink sink) throws IOException {
+            BufferedSink bufferedSink = Okio.buffer(sink(sink));
+            requestBody.writeTo(bufferedSink);
+            bufferedSink.flush();
+        }
+
+        private Sink sink(Sink sink) {
+            return new ForwardingSink(sink) {
+                long bytesWritten = 0L;
+                long contentLength = 0L;
+
+                @Override
+                public void write(Buffer source, long byteCount) throws IOException {
+                    super.write(source, byteCount);
+                    if (contentLength == 0) {
+                        contentLength = contentLength();
+                    }
+                    bytesWritten += byteCount;
+                    if (contentLength > 0 && listener != null) {
+                        listener.onProgress(bytesWritten, contentLength);
+                    }
+                }
+            };
+        }
     }
 }

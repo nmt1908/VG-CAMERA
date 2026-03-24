@@ -402,26 +402,52 @@ public class AlbumActivity extends AppCompatActivity {
         // Load approved reasons from SharedPreferences
         List<Purpose> approvedReasons = loadApprovedReasonsFromPreferences();
         
-        new AlertDialog.Builder(this)
-                .setTitle(uploadDialogTitle)
-                .setMessage(uploadDialogMessage)
-                .setPositiveButton(yesText, (dialog, which) -> {
-                    uploadButton.setEnabled(false);
+        LayoutInflater inflater = getLayoutInflater();
+        View dialogView = inflater.inflate(R.layout.dialog_report, null);
 
-                    new MediaUploader(
-                            AlbumActivity.this,
-                            userJson,
-                            approvedReasons,  // ✅ Use reasons from SharedPreferences
-                            currentLanguage
-                    ).uploadSelectedMedia(selectedMedia);
-                    logSelectedPurposesOnly(selectedMedia, approvedReasons);
+        TextView txtTitle = dialogView.findViewById(R.id.txtTitle);
+        TextView txtMessage = dialogView.findViewById(R.id.txtMessage);
+        Button btnCancel = dialogView.findViewById(R.id.btnKeep);
+        Button btnUpload = dialogView.findViewById(R.id.btnDeleteAll);
 
-                    new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                        uploadButton.setEnabled(true);
-                    }, 2000);
-                })
-                .setNegativeButton(noText, null)
-                .show();
+        txtTitle.setText(uploadDialogTitle);
+        txtMessage.setText(uploadDialogMessage);
+        btnCancel.setText(noText);
+        btnUpload.setText(yesText);
+
+        btnCancel.setBackgroundTintList(android.content.res.ColorStateList.valueOf(android.graphics.Color.parseColor("#FF3B30")));
+        btnUpload.setBackgroundTintList(android.content.res.ColorStateList.valueOf(android.graphics.Color.parseColor("#4CAF50")));
+
+        android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(this)
+                .setView(dialogView)
+                .setCancelable(false)
+                .create();
+
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
+        }
+
+        btnCancel.setOnClickListener(v -> dialog.dismiss());
+
+        btnUpload.setOnClickListener(v -> {
+            uploadButton.setEnabled(false);
+
+            new MediaUploader(
+                    AlbumActivity.this,
+                    userJson,
+                    approvedReasons,  // ✅ Use reasons from SharedPreferences
+                    currentLanguage
+            ).uploadSelectedMedia(selectedMedia);
+            logSelectedPurposesOnly(selectedMedia, approvedReasons);
+
+            new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                uploadButton.setEnabled(true);
+            }, 2000);
+            
+            dialog.dismiss();
+        });
+
+        dialog.show();
     }
     
     /**
@@ -720,11 +746,18 @@ public class AlbumActivity extends AppCompatActivity {
         Button btn = dialogView.findViewById(R.id.dialogButton);
 
         icon.setImageResource(iconResId);
-        icon.setColorFilter(ContextCompat.getColor(this, iconTintColorResId));
+        
+        int colorToApply = ContextCompat.getColor(this, iconTintColorResId);
+        if (iconTintColorResId == R.color.bluesuccess) {
+            colorToApply = android.graphics.Color.parseColor("#4CAF50"); // Xanh lá
+        }
+        
+        icon.setColorFilter(colorToApply);
         titleView.setText(title);
-        titleView.setTextColor(ContextCompat.getColor(this, iconTintColorResId));
+        titleView.setTextColor(colorToApply);
         messageView.setText(message);
         btn.setText(buttonText);
+        btn.setBackgroundTintList(android.content.res.ColorStateList.valueOf(colorToApply));
 
         AlertDialog dialog = builder.create();
         dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);

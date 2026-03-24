@@ -147,14 +147,48 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
         String cameraId = getIntent().getStringExtra("camera_id");
         if (!TextUtils.isEmpty(cameraId)) currentCameraId = cameraId;
 
-        // Quyền camera
+        // Quyền camera & Bộ nhớ
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-            startCamera();
+            checkStorageAndStartCamera();
         } else {
-            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.CAMERA}, 101);
+            ActivityCompat.requestPermissions(this, new String[]{
+                Manifest.permission.CAMERA,
+                Manifest.permission.READ_EXTERNAL_STORAGE,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE
+            }, 101);
         }
         if (appLogo != null) {
             appLogo.setOnClickListener(v -> showLoginDialog());
+        }
+    }
+
+    private void checkStorageAndStartCamera() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {
+            try {
+                Intent intent = new Intent(android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
+                intent.setData(Uri.parse(String.format("package:%s", getPackageName())));
+                startActivityForResult(intent, 2296);
+            } catch (Exception e) {
+                Intent intent = new Intent(android.provider.Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION);
+                startActivityForResult(intent, 2296);
+            }
+        } else {
+            startCamera();
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == 2296) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                if (Environment.isExternalStorageManager()) {
+                    Log.d("PERMISSIONS", "✅ All Files Access granted!");
+                } else {
+                    Toast.makeText(this, "Vui lòng cấp quyền quản lý file để ứng dụng dọn rác bộ nhớ tự động!", Toast.LENGTH_LONG).show();
+                }
+                startCamera();
+            }
         }
     }
     private void showLoginDialog() {
@@ -764,7 +798,7 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
                                            @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults); 
         if (requestCode == 101 && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-            startCamera();
+            checkStorageAndStartCamera();
         }
     }
 

@@ -1,26 +1,39 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:orientation="vertical"
-    android:padding="24dp"
+    android:padding="32dp"
     android:gravity="center"
-    android:background="@color/bluesuccess"
-    android:layout_width="wrap_content"
-    android:layout_height="wrap_content">
+    android:background="@drawable/bg_btn_keep"
+    android:backgroundTint="@color/bluesuccess"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:minWidth="320dp">
+
+    <TextView
+        android:id="@+id/progress_title"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="16dp"
+        android:text="Đang xử lý..."
+        android:textSize="18sp"
+        android:fontFamily="sans-serif-bold"
+        android:textColor="@android:color/white" />
 
     <ProgressBar
         android:id="@+id/progress_bar"
         style="@android:style/Widget.DeviceDefault.Light.ProgressBar.Horizontal"
-        android:layout_width="200dp"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:max="100"
         android:progress="0"
-        android:progressTint="@android:color/white" />
+        android:progressTint="@android:color/white" /> 
 
     <TextView
         android:id="@+id/progress_text"
-        android:layout_marginTop="12dp"
+        android:layout_marginTop="16dp"
         android:text="0%"
         android:textSize="16sp"
+        android:fontFamily="sans-serif-medium"
         android:textColor="@android:color/white"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content" />

@@ -108,7 +108,7 @@ public class AlbumAdapter extends RecyclerView.Adapter<AlbumAdapter.ViewHolder> 
             case "vi":
                 switch (key) {
                     case "delete_confirm_title": return "Xác nhận xóa";
-                    case "delete_confirm_message": return "Bạn có chắc muốn xóa? Ảnh/video đã chọn sẽ bị mất vĩnh viễn.";
+                    case "delete_confirm_message": return "Bạn có chắc muốn xóa?<br>Ảnh/video đã chọn sẽ <font color='#FF3B30'><b>bị mất vĩnh viễn</b></font>.";
                     case "delete": return "Xóa";
                     case "cancel": return "Hủy";
                     case "deleted": return "Đã xóa mục đã chọn";
@@ -124,7 +124,7 @@ public class AlbumAdapter extends RecyclerView.Adapter<AlbumAdapter.ViewHolder> 
             case "cn":
                 switch (key) {
                     case "delete_confirm_title": return "删除确认";
-                    case "delete_confirm_message": return "您确定要删除吗？所选的照片/视频将被永久删除。";
+                    case "delete_confirm_message": return "您确定要删除吗？<br>所选的照片/视频将被<font color='#FF3B30'><b>永久删除</b></font>。";
                     case "delete": return "删除";
                     case "cancel": return "取消";
                     case "deleted": return "已删除所选项";
@@ -141,7 +141,7 @@ public class AlbumAdapter extends RecyclerView.Adapter<AlbumAdapter.ViewHolder> 
             default:
                 switch (key) {
                     case "delete_confirm_title": return "Delete Confirmation";
-                    case "delete_confirm_message": return "Are you sure you want to delete? The selected photos/videos will be permanently lost.";
+                    case "delete_confirm_message": return "Are you sure you want to delete?<br>The selected photos/videos will be <font color='#FF3B30'><b>permanently lost</b></font>.";
                     case "delete": return "Delete";
                     case "cancel": return "Cancel";
                     case "deleted": return "Selected items deleted";
@@ -180,80 +180,101 @@ public class AlbumAdapter extends RecyclerView.Adapter<AlbumAdapter.ViewHolder> 
     }
 
     public void deleteSelectedItems() {
-        new android.app.AlertDialog.Builder(context)
-                .setTitle(getLocalizedString("delete_confirm_title"))
-                .setMessage(getLocalizedString("delete_confirm_message"))
-                .setPositiveButton(getLocalizedString("delete"), (dialog, which) -> {
-                    boolean allDeleted = true;
+        LayoutInflater inflater = LayoutInflater.from(context);
+        View dialogView = inflater.inflate(R.layout.dialog_report, null);
 
-                    Iterator<MediaItem> iterator = mediaItems.iterator();
-                    while (iterator.hasNext()) {
-                        MediaItem item = iterator.next();
-                        if (item.isSelected) {
-                            Uri uri = Uri.parse(item.uri);
+        TextView txtTitle = dialogView.findViewById(R.id.txtTitle);
+        TextView txtMessage = dialogView.findViewById(R.id.txtMessage);
+        Button btnKeep = dialogView.findViewById(R.id.btnKeep);
+        Button btnDeleteAll = dialogView.findViewById(R.id.btnDeleteAll);
+
+        txtTitle.setText(getLocalizedString("delete_confirm_title"));
+        txtMessage.setText(android.text.Html.fromHtml(getLocalizedString("delete_confirm_message"), android.text.Html.FROM_HTML_MODE_LEGACY));
+        btnKeep.setText(getLocalizedString("cancel"));
+        btnDeleteAll.setText(getLocalizedString("delete"));
+
+        AlertDialog dialog = new android.app.AlertDialog.Builder(context)
+                .setView(dialogView)
+                .setCancelable(false)
+                .create();
+
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
+        }
+
+        btnKeep.setOnClickListener(v -> dialog.dismiss());
+
+        btnDeleteAll.setOnClickListener(v -> {
+            boolean allDeleted = true;
+
+            Iterator<MediaItem> iterator = mediaItems.iterator();
+            while (iterator.hasNext()) {
+                MediaItem item = iterator.next();
+                if (item.isSelected) {
+                    Uri uri = Uri.parse(item.uri);
+                    try {
+                        int deleted = context.getContentResolver().delete(uri, null, null);
+                        if (deleted > 0) {
+                            iterator.remove();
+                        } else {
+                            allDeleted = false;
+                        }
+                    } catch (RecoverableSecurityException e) {
+                        IntentSender intentSender = e.getUserAction().getActionIntent().getIntentSender();
+                        if (context instanceof AlbumActivity) {
+                            AlbumActivity activity = (AlbumActivity) context;
+                            activity.setPendingDeleteUri(uri);
                             try {
-                                int deleted = context.getContentResolver().delete(uri, null, null);
-                                if (deleted > 0) {
-                                    iterator.remove();
-                                } else {
-                                    allDeleted = false;
-                                }
-                            } catch (RecoverableSecurityException e) {
-                                IntentSender intentSender = e.getUserAction().getActionIntent().getIntentSender();
-                                if (context instanceof AlbumActivity) {
-                                    AlbumActivity activity = (AlbumActivity) context;
-                                    activity.setPendingDeleteUri(uri);
-                                    try {
-                                        activity.startIntentSenderForResult(
-                                                intentSender,
-                                                REQUEST_DELETE_PERMISSION,
-                                                null, 0, 0, 0
-                                        );
-                                        return;
-                                    } catch (IntentSender.SendIntentException sendEx) {
-                                        sendEx.printStackTrace();
-                                    }
-                                }
-                                allDeleted = false;
-                                break;
-                            } catch (Exception e) {
-                                e.printStackTrace();
-                                allDeleted = false;
+                                activity.startIntentSenderForResult(
+                                        intentSender,
+                                        REQUEST_DELETE_PERMISSION,
+                                        null, 0, 0, 0
+                                );
+                                dialog.dismiss();
+                                return;
+                            } catch (IntentSender.SendIntentException sendEx) {
+                                sendEx.printStackTrace();
                             }
                         }
+                        allDeleted = false;
+                        break;
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                        allDeleted = false;
                     }
+                }
+            }
 
-                    notifyDataSetChanged();
-                    selectionMode = false;
-                    updateTitleCallback.run();
+            notifyDataSetChanged();
+            selectionMode = false;
+            updateTitleCallback.run();
 
-                    if (allDeleted) {
-                        showCustomDialog(
-                                R.drawable.check_circle,
-                                R.color.bluesuccess,
-                                getLocalizedString("delete_success_title"),
-                                getLocalizedString("delete_success_message"),
-                                getLocalizedString("ok"),
-                                () -> {
-                                    deselectAll();
-                                    notifyDataSetChanged();
-                                }
-                        );
-                    } else {
-                        showCustomDialog(
-                                R.drawable.ic_x_circle,
-                                R.color.red,
-                                getLocalizedString("delete_failed_title"),
-                                getLocalizedString("delete_failed_message"),
-                                getLocalizedString("close"),
-                                null
-                        );
-                    }
+            if (allDeleted) {
+                showCustomDialog(
+                        R.drawable.check_circle,
+                        R.color.bluesuccess,
+                        getLocalizedString("delete_success_title"),
+                        getLocalizedString("delete_success_message"),
+                        getLocalizedString("ok"),
+                        () -> {
+                            deselectAll();
+                            notifyDataSetChanged();
+                        }
+                );
+            } else {
+                showCustomDialog(
+                        R.drawable.ic_x_circle,
+                        R.color.red,
+                        getLocalizedString("delete_failed_title"),
+                        getLocalizedString("delete_failed_message"),
+                        getLocalizedString("close"),
+                        null
+                );
+            }
+            dialog.dismiss();
+        });
 
-                    dialog.dismiss();
-                })
-                .setNegativeButton(getLocalizedString("cancel"), (dialog, which) -> dialog.dismiss())
-                .show();
+        dialog.show();
     }
 
 
@@ -272,11 +293,18 @@ public class AlbumAdapter extends RecyclerView.Adapter<AlbumAdapter.ViewHolder> 
         Button btn = dialogView.findViewById(R.id.dialogButton);
 
         icon.setImageResource(iconResId);
-        icon.setColorFilter(ContextCompat.getColor(context, iconTintColorResId));
+        
+        int colorToApply = ContextCompat.getColor(context, iconTintColorResId);
+        if (iconTintColorResId == R.color.bluesuccess) {
+            colorToApply = android.graphics.Color.parseColor("#4CAF50"); // Xanh lá
+        }
+        
+        icon.setColorFilter(colorToApply);
         titleView.setText(title);
-        titleView.setTextColor(ContextCompat.getColor(context, iconTintColorResId));
+        titleView.setTextColor(colorToApply);
         messageView.setText(message);
         btn.setText(buttonText);
+        btn.setBackgroundTintList(android.content.res.ColorStateList.valueOf(colorToApply));
 
         AlertDialog dialog = builder.create();
         dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);

@@ -149,10 +149,8 @@ public class MenuActivity extends AppCompatActivity {
             // Lấy ngôn ngữ từ API bất đồng bộ
             getInfoByEmpNo(newUser.getCardId(), showReport);
         } else {
-            // Ngôn ngữ đã có sẵn, xử lý ngay
+            // Ngôn ngữ đã có sẵn
             updateTextsByLanguage(currentLanguage);
-
-            // Set spinner
             int position = -1;
             for (int i = 0; i < languageList.size(); i++) {
                 if (languageList.get(i).getValue().equals(currentLanguage)) {
@@ -163,15 +161,7 @@ public class MenuActivity extends AppCompatActivity {
             if (position >= 0) {
                 spinnerLanguage.setSelection(position);
             }
-
-            // Gọi showReportDialog ngay nếu chuỗi đã sẵn sàng
-            if (showReport) {
-                int imageCount = countMedia(MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
-                int videoCount = countMedia(MediaStore.Video.Media.EXTERNAL_CONTENT_URI);
-                if (imageCount != 0 || videoCount != 0) {
-                    showReportDialog(imageCount, videoCount);
-                }
-            }
+            checkReasonsOrContinue(showReport);
         }
 
         handler.post(updateTimeRunnable);
@@ -209,17 +199,7 @@ public class MenuActivity extends AppCompatActivity {
             showNotification("You have selected low or medium resolution!");
         }
 
-        // ✅ Only fetch approved reasons if not already stored (first login from MainActivity)
-        String existingReasons = prefs.getString("approved_reasons_json", null);
-        if (existingReasons == null) {
-            // First time login - fetch reasons
-            String empno = newUser.getCardId();
-            String currentDate = new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(new Date());
-            fetchApprovedReasons(empno, currentDate);
-            Log.d("APPROVED_REASONS", "🔄 First login - fetching approved reasons");
-        } else {
-            Log.d("APPROVED_REASONS", "✅ Reasons already exist - skipping API call");
-        }
+        // Moved checking reasons to sequential flow inside checkReasonsOrContinue()
     }
     public void getInfoByEmpNo(String cardId, boolean showReport) {
         fetchInfo(cardId, showReport, true); // lần đầu, cho phép thử lại
@@ -296,17 +276,34 @@ public class MenuActivity extends AppCompatActivity {
                 SharedPreferences prefs = getSharedPreferences("VGCameraPrefs", MODE_PRIVATE);
                 prefs.edit().putString("app_language", currentLanguage).apply();
 
-                if (showReport) {
-                    int imageCount = countMedia(MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
-                    int videoCount = countMedia(MediaStore.Video.Media.EXTERNAL_CONTENT_URI);
-                    if (imageCount != 0 || videoCount != 0) {
-                        showReportDialog(imageCount, videoCount);
-                    }
-                }
+                checkReasonsOrContinue(showReport);
             });
 
         } catch (JSONException e) {
             Log.e("API_CALL", "❌ JSON error for " + cardId + ": " + e.getMessage());
+        }
+    }
+
+    private void checkReasonsOrContinue(boolean showReport) {
+        String existingReasons = prefs.getString("approved_reasons_json", null);
+        if (existingReasons == null) {
+            String empno = newUser.getCardId();
+            String currentDate = new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(new Date());
+            Log.d("APPROVED_REASONS", "🔄 Fetching approved reasons synchronously");
+            fetchApprovedReasons(empno, currentDate, showReport);
+        } else {
+            Log.d("APPROVED_REASONS", "✅ Reasons already exist");
+            continueWithLeftoverMedia(showReport);
+        }
+    }
+
+    private void continueWithLeftoverMedia(boolean showReport) {
+        if (showReport) {
+            int imageCount = countMedia(MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
+            int videoCount = countMedia(MediaStore.Video.Media.EXTERNAL_CONTENT_URI);
+            if (imageCount != 0 || videoCount != 0) {
+                showReportDialog(imageCount, videoCount);
+            }
         }
     }
 
@@ -344,7 +341,12 @@ public class MenuActivity extends AppCompatActivity {
         Button btnDeleteAll = dialogView.findViewById(R.id.btnDeleteAll);
 
         txtTitle.setText(reportTitle);
-        txtMessage.setText(String.format(reportMessageTemplate, imageCount, videoCount));
+        
+        String formattedMsg = String.format(reportMessageTemplate, 
+            "<font color='#FF4D4D'><b>" + imageCount + "</b></font>", 
+            "<font color='#FF4D4D'><b>" + videoCount + "</b></font>");
+        txtMessage.setText(android.text.Html.fromHtml(formattedMsg.replace("\n", "<br>"), android.text.Html.FROM_HTML_MODE_LEGACY));
+        
         btnKeep.setText(reportKeep);
         btnDeleteAll.setText(reportDeleteAll);
 
@@ -352,6 +354,10 @@ public class MenuActivity extends AppCompatActivity {
                 .setView(dialogView)
                 .setCancelable(false) // Nếu muốn người dùng phải chọn
                 .create();
+
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
+        }
 
         btnKeep.setOnClickListener(v -> {
             dialog.dismiss();
@@ -396,11 +402,18 @@ public class MenuActivity extends AppCompatActivity {
         Button btn = dialogView.findViewById(R.id.dialogButton);
 
         icon.setImageResource(iconResId);
-        icon.setColorFilter(ContextCompat.getColor(this, iconTintColorResId));
+        
+        int colorToApply = ContextCompat.getColor(this, iconTintColorResId);
+        if (iconTintColorResId == R.color.bluesuccess) {
+            colorToApply = android.graphics.Color.parseColor("#4CAF50"); // Xanh lá
+        }
+        
+        icon.setColorFilter(colorToApply);
         titleView.setText(title);
-        titleView.setTextColor(ContextCompat.getColor(this, iconTintColorResId));
+        titleView.setTextColor(colorToApply);
         messageView.setText(message);
         btn.setText(buttonText);
+        btn.setBackgroundTintList(android.content.res.ColorStateList.valueOf(colorToApply));
 
         android.app.AlertDialog dialog = builder.create();
         dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
@@ -416,13 +429,13 @@ public class MenuActivity extends AppCompatActivity {
 
     private void deleteAllMediaItems() {
         deleteQueue.clear();
+        List<Uri> batchUris = new ArrayList<>();
 
         Uri[] mediaUris = {
                 MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
                 MediaStore.Video.Media.EXTERNAL_CONTENT_URI
         };
 
-        // Thu thập tất cả media URI vào hàng đợi
         for (Uri collection : mediaUris) {
             String[] projection = { MediaStore.MediaColumns._ID };
             try (Cursor cursor = getContentResolver().query(collection, projection, null, null, null)) {
@@ -431,13 +444,28 @@ public class MenuActivity extends AppCompatActivity {
                         long id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID));
                         Uri uri = ContentUris.withAppendedId(collection, id);
                         deleteQueue.add(uri);
+                        batchUris.add(uri);
                     }
                 }
             }
         }
 
-        // Bắt đầu xóa
-        deleteNextFromQueue();
+        if (batchUris.isEmpty()) {
+            showCustomDialog(R.drawable.check_circle, R.color.bluesuccess, deleteSuccessTitle, deleteSuccessMessage, deleteButtonText, () -> {});
+            return;
+        }
+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R && !android.os.Environment.isExternalStorageManager()) {
+            try {
+                android.app.PendingIntent pi = MediaStore.createDeleteRequest(getContentResolver(), batchUris);
+                startIntentSenderForResult(pi.getIntentSender(), REQUEST_DELETE_PERMISSION, null, 0, 0, 0, null);
+            } catch (IntentSender.SendIntentException e) {
+                e.printStackTrace();
+                deleteNextFromQueue(); // Fallback to Android 10 loop
+            }
+        } else {
+            deleteNextFromQueue(); // Android 10 individual deletes OR MANAGE_EXTERNAL_STORAGE is granted
+        }
     }
 
     private void deleteNextFromQueue() {
@@ -559,14 +587,21 @@ public class MenuActivity extends AppCompatActivity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == REQUEST_DELETE_PERMISSION && resultCode == RESULT_OK && pendingDeleteUri != null) {
-            try {
-                getContentResolver().delete(pendingDeleteUri, null, null);
-            } catch (Exception e) {
-                e.printStackTrace();
+        if (requestCode == REQUEST_DELETE_PERMISSION && resultCode == RESULT_OK) {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R && pendingDeleteUri == null) {
+                // Batch delete already performed by OS in Android 11+
+                deleteQueue.clear();
+                showCustomDialog(R.drawable.check_circle, R.color.bluesuccess, deleteSuccessTitle, deleteSuccessMessage, deleteButtonText, () -> {});
+            } else if (pendingDeleteUri != null) {
+                // Android 10 fallback
+                try {
+                    getContentResolver().delete(pendingDeleteUri, null, null);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+                pendingDeleteUri = null;
+                deleteNextFromQueue();
             }
-            pendingDeleteUri = null;
-            deleteNextFromQueue(); // Tiếp tục xóa phần còn lại
         }
     }
 
@@ -590,7 +625,7 @@ public class MenuActivity extends AppCompatActivity {
                 textExitPositive = "Thoát";
                 textExitNegative = "Hủy";
                 reportTitle = "VG-Camera Báo cáo";
-                reportMessageTemplate = "Hiện tại còn %d ảnh và %d video còn trong máy.\nBạn muốn giữ lại ảnh và video hay xóa tất cả?";
+                reportMessageTemplate = "Hiện tại còn %s ảnh và %s video còn trong máy.\nBạn muốn giữ lại ảnh và video hay xóa tất cả?";
                 reportKeep = "Giữ lại";
                 reportDeleteAll = "Xóa tất cả";
                 deleteSuccessTitle = "Đã xóa";
@@ -610,7 +645,7 @@ public class MenuActivity extends AppCompatActivity {
                 textExitPositive = "Exit";
                 textExitNegative = "Cancel";
                 reportTitle = "VG-Camera Report";
-                reportMessageTemplate = "There are currently %d images and %d videos remaining.\nDo you want to keep them or delete all?";
+                reportMessageTemplate = "There are currently %s images and %s videos remaining.\nDo you want to keep them or delete all?";
                 reportKeep = "Keep";
                 reportDeleteAll = "Delete All";
                 deleteSuccessTitle = "Deleted";
@@ -630,7 +665,7 @@ public class MenuActivity extends AppCompatActivity {
                 textExitPositive = "退出";
                 textExitNegative = "取消";
                 reportTitle = "VG-Camera 报告";
-                reportMessageTemplate = "当前设备中还有 %d 张图片和 %d 个视频。\n您想保留它们还是全部删除？";
+                reportMessageTemplate = "当前设备中还有 %s 张图片和 %s 个视频。\n您想保留它们还是全部删除？";
                 reportKeep = "保留";
                 reportDeleteAll = "全部删除";
                 deleteSuccessTitle = "已删除";
@@ -693,7 +728,7 @@ public class MenuActivity extends AppCompatActivity {
     /**
      * Fetch approved reasons from API
      */
-    private void fetchApprovedReasons(String empno, String date) {
+    private void fetchApprovedReasons(String empno, String date, boolean showReport) {
         OkHttpClient client = new OkHttpClient();
         String url = "http://gmo021.cansportsvg.com/api/camera-api/getApprovedReasonsByEmpnoAndDate";
 
@@ -723,7 +758,7 @@ public class MenuActivity extends AppCompatActivity {
                     Log.d("APPROVED_REASONS", "📥 Response: " + body);
                     try {
                         JSONObject json = new JSONObject(body);
-                        runOnUiThread(() -> handleApprovedReasonsResponse(json));
+                        runOnUiThread(() -> handleApprovedReasonsResponse(json, showReport));
                     } catch (JSONException e) {
                         Log.e("APPROVED_REASONS", "❌ JSON parse error: " + e.getMessage());
                     }
@@ -737,7 +772,7 @@ public class MenuActivity extends AppCompatActivity {
     /**
      * Handle API response for approved reasons
      */
-    private void handleApprovedReasonsResponse(JSONObject response) {
+    private void handleApprovedReasonsResponse(JSONObject response, boolean showReport) {
         try {
             boolean ok = response.optBoolean("ok", false);
             int countOrders = response.optInt("count_orders", 0);
@@ -758,9 +793,10 @@ public class MenuActivity extends AppCompatActivity {
                 JSONArray reasons = order.getJSONArray("reasons");
                 saveReasonsToPreferences(reasons);
                 Log.d("APPROVED_REASONS", "✅ Auto-saved reasons from single order");
-            } else if (countOrders == 2) {
+                continueWithLeftoverMedia(showReport);
+            } else if (countOrders >= 2) {
                 // Show dialog to let user choose
-                showOrderSelectionDialog(orders);
+                showOrderSelectionDialog(orders, () -> continueWithLeftoverMedia(showReport));
             }
 
         } catch (JSONException e) {
@@ -814,7 +850,7 @@ public class MenuActivity extends AppCompatActivity {
     /**
      * Show dialog to select between 2 orders
      */
-    private void showOrderSelectionDialog(JSONArray orders) {
+    private void showOrderSelectionDialog(JSONArray orders, Runnable onSelected) {
         try {
             View dialogView = getLayoutInflater().inflate(R.layout.dialog_order_selection, null);
 
@@ -889,10 +925,15 @@ public class MenuActivity extends AppCompatActivity {
             }
 
             btnConfirm.setOnClickListener(v -> {
-                JSONArray selectedReasons = selectedIndex[0] == 0 ? reasons1 : reasons2;
-                saveReasonsToPreferences(selectedReasons);
+                try {
+                    JSONObject order1_obj = orders.getJSONObject(0);
+                    JSONObject order2_obj = orders.getJSONObject(1);
+                    JSONArray selectedReasons = selectedIndex[0] == 0 ? order1_obj.getJSONArray("reasons") : order2_obj.getJSONArray("reasons");
+                    saveReasonsToPreferences(selectedReasons);
+                } catch (JSONException e) {}
                 dialog.dismiss();
                 Log.d("APPROVED_REASONS", "✅ User selected order " + (selectedIndex[0] + 1) + ", reasons saved");
+                if (onSelected != null) onSelected.run();
             });
 
             dialog.show();

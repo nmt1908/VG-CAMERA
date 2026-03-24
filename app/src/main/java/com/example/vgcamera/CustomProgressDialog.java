@@ -13,17 +13,19 @@ public class CustomProgressDialog {
     private final Dialog dialog;
     private final ProgressBar progressBar;
     private final TextView progressText;
+    private final TextView progressTitle;
     private final Handler handler = new Handler();
 
     public CustomProgressDialog(Context context) {
         dialog = new Dialog(context);
         View view = LayoutInflater.from(context).inflate(R.layout.dialog_progress, null);
         dialog.setContentView(view);
-        dialog.getWindow().setBackgroundDrawable(new ColorDrawable(context.getColor(R.color.bluesuccess)));
+        dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
         dialog.setCancelable(false);
 
         progressBar = view.findViewById(R.id.progress_bar);
         progressText = view.findViewById(R.id.progress_text);
+        progressTitle = view.findViewById(R.id.progress_title);
     }
 
     public void show() {
@@ -37,7 +39,9 @@ public class CustomProgressDialog {
     }
     public void setMessage(String message) {
         handler.post(() -> {
-            progressText.setText(message); // Nếu bạn có TextView để hiển thị message
+            if (progressTitle != null) {
+                progressTitle.setText(message);
+            }
         });
     }
 

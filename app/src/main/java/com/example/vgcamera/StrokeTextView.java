@@ -8,8 +8,6 @@ import android.text.TextPaint;
 import android.util.AttributeSet;
 
 public class StrokeTextView extends androidx.appcompat.widget.AppCompatTextView {
-    private int strokeColor = Color.YELLOW;
-    private float strokeWidth = 4;
 
     public StrokeTextView(Context context) {
         super(context);
@@ -25,22 +23,19 @@ public class StrokeTextView extends androidx.appcompat.widget.AppCompatTextView 
 
     @Override
     protected void onDraw(Canvas canvas) {
-        // Lưu màu chữ gốc
+        // Lưu màu chữ gốc từ XML
         int currentTextColor = getCurrentTextColor();
 
-        // Vẽ viền (stroke)
+        // 1. Vẽ viền (stroke) màu Đen mờ để nổi bật trên nền sáng
         TextPaint paint = getPaint();
         paint.setStyle(Paint.Style.STROKE);
-        paint.setStrokeWidth(strokeWidth);
-        setTextColor(strokeColor);
+        paint.setStrokeWidth(4);
+        setTextColor(Color.parseColor("#80000000")); // Black with 50% opacity
         super.onDraw(canvas);
 
-        // Vẽ chữ bên trong trong suốt (màu trong suốt)
+        // 2. Vẽ chữ bên trong (fill) với màu gốc từ XML
         paint.setStyle(Paint.Style.FILL);
-        setTextColor(Color.TRANSPARENT);
-        super.onDraw(canvas);
-
-        // Reset lại màu chữ gốc (phòng trường hợp)
         setTextColor(currentTextColor);
+        super.onDraw(canvas);
     }
 }

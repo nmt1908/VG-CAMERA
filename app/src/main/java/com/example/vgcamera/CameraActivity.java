@@ -658,8 +658,23 @@ public class CameraActivity extends AppCompatActivity {
 
     private void captureVideo() {
 
-
         if (videoCapture == null) return;
+
+        if (activeRecording != null) {
+            // Đang quay -> dừng quay
+            activeRecording.stop();
+            activeRecording = null;
+            if (timerRunnable != null) {
+                handler.removeCallbacks(timerRunnable);
+            }
+            if (stopRecordingRunnable != null) {
+                handler.removeCallbacks(stopRecordingRunnable);
+            }
+            txtTimer.setVisibility(View.GONE);
+            btnAction.setImageResource(R.drawable.ic_video_camera);
+            return;
+        }
+
         switch (currentRotation) {
             case Surface.ROTATION_0:
             case Surface.ROTATION_180:
@@ -698,7 +713,9 @@ public class CameraActivity extends AppCompatActivity {
                     Log.d("VIDEO", "Reached 5-minute limit, stopping recording.");
                     activeRecording.stop();
                     activeRecording = null;
-                    handler.removeCallbacks(timerRunnable);
+                    if (timerRunnable != null) {
+                        handler.removeCallbacks(timerRunnable);
+                    }
                     txtTimer.setVisibility(View.GONE);
                     btnAction.setImageResource(R.drawable.ic_video_camera);
                     Toast.makeText(CameraActivity.this, "Đã quay đủ 5 phút", Toast.LENGTH_SHORT).show();
@@ -706,16 +723,6 @@ public class CameraActivity extends AppCompatActivity {
             }
         };
         handler.postDelayed(stopRecordingRunnable, 5 * 60 * 1000); // 5 phút
-        if (activeRecording != null) {
-            // Đang quay -> dừng quay
-            activeRecording.stop();
-            activeRecording = null;
-            handler.removeCallbacks(timerRunnable);
-            handler.removeCallbacks(stopRecordingRunnable);
-            txtTimer.setVisibility(View.GONE);
-            btnAction.setImageResource(R.drawable.ic_video_camera);
-            return;
-        }
 
         // Tạo tên file video duy nhất cho lần quay này
         currentVideoFileName = new SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.US)
@@ -742,7 +749,22 @@ public class CameraActivity extends AppCompatActivity {
             if (event instanceof VideoRecordEvent.Finalize) {
                 btnAction.setImageResource(R.drawable.ic_video_camera);
 
-                Uri savedUri = ((VideoRecordEvent.Finalize) event).getOutputResults().getOutputUri();
+                if (timerRunnable != null) {
+                    handler.removeCallbacks(timerRunnable);
+                }
+                if (stopRecordingRunnable != null) {
+                    handler.removeCallbacks(stopRecordingRunnable);
+                }
+                txtTimer.setVisibility(View.GONE);
+                activeRecording = null;
+
+                VideoRecordEvent.Finalize finalizeEvent = (VideoRecordEvent.Finalize) event;
+                if (finalizeEvent.hasError()) {
+                    Log.e("VIDEO", "Recording error: " + finalizeEvent.getError());
+                    Toast.makeText(CameraActivity.this, "Lỗi quay video, vui lòng thử lại.", Toast.LENGTH_SHORT).show();
+                }
+
+                Uri savedUri = finalizeEvent.getOutputResults().getOutputUri();
                 if (savedUri != null) {
                     try {
                         MediaMetadataRetriever retriever = new MediaMetadataRetriever();

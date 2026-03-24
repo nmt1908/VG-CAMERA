@@ -1,6 +1,7 @@
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/rootLayout"
+    android:fitsSystemWindows="true"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#000000">
@@ -33,33 +34,42 @@
         android:layout_height="wrap_content"
         android:layout_gravity="center"
         android:text="CardID Name"
-        android:textColor="#FFEB3B"
-        android:textSize="24sp"
+        android:textColor="#FFFFFF"
+        android:textSize="32sp"
+        android:fontFamily="sans-serif-black"
         android:textStyle="bold"
         android:gravity="center"
         android:rotation="45"
         android:alpha="0.5" />
 
-    <!-- Close button -->
-    <ImageView
-        android:id="@+id/btnClose"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
-        android:layout_gravity="top|end"
-        android:layout_margin="16dp"
-        android:src="@android:drawable/ic_menu_close_clear_cancel"
-        android:tint="#EDD708" />
-
+    <!-- Media Position Badge -->
     <TextView
         android:id="@+id/mediaPositionText"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_gravity="bottom|center_horizontal"
-        android:layout_marginBottom="24dp"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="24dp"
         android:text="1/6"
-        android:textColor="@android:color/white"
-        android:textSize="16sp"
-        android:background="#66000000"
-        android:padding="6dp"
+        android:textColor="#FFFFFF"
+        android:textSize="14sp"
+        android:fontFamily="sans-serif-medium"
+        android:background="@drawable/bg_glass_pill"
+        android:paddingHorizontal="16dp"
+        android:paddingVertical="6dp"
+        android:elevation="4dp"
         android:visibility="visible" />
+
+    <!-- Close button -->
+    <ImageButton
+        android:id="@+id/btnClose"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:layout_gravity="top|start"
+        android:layout_margin="16dp"
+        android:padding="12dp"
+        android:scaleType="fitCenter"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:src="@drawable/baseline_arrow_back_24"
+        android:tint="#FFFFFF"
+        android:contentDescription="Close" />
 </FrameLayout>

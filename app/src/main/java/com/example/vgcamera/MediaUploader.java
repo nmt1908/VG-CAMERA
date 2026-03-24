@@ -143,10 +143,48 @@ public class MediaUploader {
                 Uri uri = Uri.parse(item.uri);
                 Log.d(TAG, "Ảnh uri: " + item.uri);
 
-                Bitmap bitmap = MediaStore.Images.Media.getBitmap(activity.getContentResolver(), uri);
-                ByteArrayOutputStream stream = new ByteArrayOutputStream();
-                bitmap.compress(Bitmap.CompressFormat.JPEG, 90, stream);
-                String base64 = Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP);
+                int orientation = android.media.ExifInterface.ORIENTATION_NORMAL;
+                String[] proj = { MediaStore.Images.Media.DATA };
+                try (android.database.Cursor cursor = activity.getContentResolver().query(uri, proj, null, null, null)) {
+                    if (cursor != null && cursor.moveToFirst()) {
+                        int colIndex = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA);
+                        String filePath = cursor.getString(colIndex);
+                        if (filePath != null) {
+                            android.media.ExifInterface exif = new android.media.ExifInterface(filePath);
+                            orientation = exif.getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION, android.media.ExifInterface.ORIENTATION_NORMAL);
+                        }
+                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+
+                java.io.InputStream input = activity.getContentResolver().openInputStream(uri);
+                Bitmap bitmap = android.graphics.BitmapFactory.decodeStream(input);
+                input.close();
+
+                android.graphics.Matrix matrix = new android.graphics.Matrix();
+                if (orientation == android.media.ExifInterface.ORIENTATION_ROTATE_90) {
+                    matrix.postRotate(90);
+                } else if (orientation == android.media.ExifInterface.ORIENTATION_ROTATE_180) {
+                    matrix.postRotate(180);
+                } else if (orientation == android.media.ExifInterface.ORIENTATION_ROTATE_270) {
+                    matrix.postRotate(270);
+                }
+
+                if (!matrix.isIdentity() && bitmap != null) {
+                    Bitmap rotatedBitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), matrix, true);
+                    if (rotatedBitmap != bitmap) {
+                        bitmap.recycle();
+                        bitmap = rotatedBitmap;
+                    }
+                }
+
+                String base64 = "";
+                if (bitmap != null) {
+                    ByteArrayOutputStream stream = new ByteArrayOutputStream();
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, 90, stream);
+                    base64 = Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP);
+                }
 
                 JSONObject photo = new JSONObject();
                 photo.put("photo", "data:image/jpeg;base64," + base64);

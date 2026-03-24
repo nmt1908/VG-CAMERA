@@ -456,13 +456,18 @@ public class CameraActivity extends AppCompatActivity {
                 int photoResIndex = prefs.getInt("photo_resolution_index", 2); // Default: Medium
                 int videoResIndex = prefs.getInt("video_resolution_index", 0); // Default: Medium
 
-                Size targetPhotoSize = getPhotoResolutionForIndex(photoResIndex);
                 QualitySelector videoQualitySelector = getVideoQualitySelector(videoResIndex);
+
+                int aspectRatio = androidx.camera.core.AspectRatio.RATIO_4_3;
+                if (photoResIndex == 1) {
+                    aspectRatio = androidx.camera.core.AspectRatio.RATIO_16_9;
+                }
 
                 // Cấu hình chụp ảnh
                 imageCapture = new ImageCapture.Builder()
-                        .setTargetResolution(targetPhotoSize)
+                        .setTargetAspectRatio(aspectRatio)
                         .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                        .setJpegQuality(photoResIndex == 0 ? 60 : (photoResIndex == 1 ? 80 : 100))
                         .build();
 
                 // Cấu hình quay video
@@ -540,7 +545,8 @@ public class CameraActivity extends AppCompatActivity {
                                 ExifInterface exif = new ExifInterface(file.getAbsolutePath());
                                 int width = exif.getAttributeInt(ExifInterface.TAG_IMAGE_WIDTH, 0);
                                 int height = exif.getAttributeInt(ExifInterface.TAG_IMAGE_LENGTH, 0);
-                                Log.d("PHOTO", "Image resolution: " + width + " x " + height);
+                                int orientation = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, 0);
+                                Log.d("PHOTO", "Image resolution: " + width + " x " + height + ", EXIF Orientation: " + orientation);
                             } catch (IOException e) {
                                 Log.e("PHOTO", "Failed to read image resolution", e);
                             }

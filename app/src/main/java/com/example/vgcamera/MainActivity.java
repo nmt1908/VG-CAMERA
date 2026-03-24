@@ -35,6 +35,7 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
+
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
@@ -83,6 +84,7 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
     private PreviewView previewView;
     private FaceGraphicOverlay graphicOverlay;
     private ImageCapture imageCapture;
+    private ImageAnalysis imageAnalysis;
     private ProcessCameraProvider cameraProvider;
 
     private boolean isTakingPhoto = false;
@@ -94,6 +96,7 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
     private ProgressBar loadingSpinner;
     private volatile boolean isLoginDialogShowing = false; // đang mở dialog login?
     private boolean navigatingNext = false;
+    private boolean isRequireUpdate = false;
     private TextView alertTextView, labelName, nameTextView, labelCardId, cardIDTextView, labelSimilarity, similarityTextView, appTitle;
     private ImageView appLogo;
 
@@ -147,6 +150,7 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
         String cameraId = getIntent().getStringExtra("camera_id");
         if (!TextUtils.isEmpty(cameraId)) currentCameraId = cameraId;
 
+
         // Quyền camera & Bộ nhớ
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
             checkStorageAndStartCamera();
@@ -176,6 +180,7 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
             startCamera();
         }
     }
+
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
@@ -313,6 +318,7 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
 
                 int localCode = getPackageManager().getPackageInfo(getPackageName(), 0).versionCode;
                 if (remoteCode > localCode) {
+                    isRequireUpdate = true;
                     runOnUiThread(() -> {
                         // dừng camera trước khi show dialog cập nhật để giải phóng tài nguyên
                         stopCamera();
@@ -362,89 +368,57 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
         dlg.show();
     }
 
-    private void downloadAndInstallApk(String url) {
-        try {
-            DownloadManager.Request req = new DownloadManager.Request(Uri.parse(url));
-            req.setTitle("Đang tải cập nhật");
-            req.setDescription("Đang tải file APK...");
-            req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "update.apk");
-            req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+    private void downloadAndInstallApk(final String urlString) {
+        showToastOnMainThread("Đang tải bản cập nhật...");
+        new Thread(() -> {
+            try {
+                okhttp3.Request request = new okhttp3.Request.Builder().url(urlString).build();
+                OkHttpClient client = httpClient.newBuilder()
+                        .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                        .readTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
+                        .build();
 
-            DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
-            long downloadId = dm.enqueue(req);
-
-            BroadcastReceiver br = new BroadcastReceiver() {
-                @Override public void onReceive(Context context, Intent intent) {
-                    if (!DownloadManager.ACTION_DOWNLOAD_COMPLETE.equals(intent.getAction())) return;
-
-                    // 1) Chỉ xử lý khi SUCCESSFUL
-                    DownloadManager.Query q = new DownloadManager.Query().setFilterById(downloadId);
-                    try (android.database.Cursor c = dm.query(q)) {
-                        if (c == null || !c.moveToFirst()) {
-                            Toast.makeText(MainActivity.this, "Download query failed", Toast.LENGTH_LONG).show();
-                            return;
-                        }
-                        int status = c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS));
-                        if (status != DownloadManager.STATUS_SUCCESSFUL) {
-                            Toast.makeText(MainActivity.this, "Download not successful", Toast.LENGTH_LONG).show();
-                            return;
-                        }
-                        long totalSize = c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES));
-                        if (totalSize <= 0) {
-                            Toast.makeText(MainActivity.this, "Downloaded file is empty", Toast.LENGTH_LONG).show();
-                            return;
-                        }
-
-                        // 2) Lấy URI gốc của DownloadManager (content://downloads/...)
-                        Uri apkUri = dm.getUriForDownloadedFile(downloadId);
-                        if (apkUri == null) {
-                            Toast.makeText(MainActivity.this, "Cannot get downloaded file URI", Toast.LENGTH_LONG).show();
-                            return;
-                        }
-
-                        // 3) Cài đặt bằng URI đó
-                        installApkFromDownloadUri(apkUri);
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                        Toast.makeText(MainActivity.this, "Install error: " + e.getMessage(), Toast.LENGTH_LONG).show();
-                    } finally {
-                        try { unregisterReceiver(this); } catch (Exception ignore) {}
+                try (okhttp3.Response response = client.newCall(request).execute()) {
+                    if (!response.isSuccessful()) {
+                        showToastOnMainThread("Lỗi tải xuống (HTTP " + response.code() + ")");
+                        return;
                     }
+
+                    File apkFile = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "update.apk");
+                    if (apkFile.exists()) {
+                        apkFile.delete();
+                    }
+
+                    try (java.io.InputStream in = response.body().byteStream();
+                         java.io.FileOutputStream out = new java.io.FileOutputStream(apkFile)) {
+                         
+                        byte[] buffer = new byte[16384];
+                        int read;
+                        while ((read = in.read(buffer)) != -1) {
+                            out.write(buffer, 0, read);
+                        }
+                    }
+
+                    showToastOnMainThread("Tải hoàn tất, đang cài đặt...");
+
+                    Uri apkUri;
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                        apkUri = androidx.core.content.FileProvider.getUriForFile(MainActivity.this, getPackageName() + ".provider", apkFile);
+                    } else {
+                        apkUri = Uri.fromFile(apkFile);
+                    }
+
+                    Intent intent = new Intent(Intent.ACTION_VIEW);
+                    intent.setDataAndType(apkUri, "application/vnd.android.package-archive");
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    startActivity(intent);
                 }
-            };
-
-            IntentFilter filter = new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE);
-            if (Build.VERSION.SDK_INT >= 33) {
-                registerReceiver(br, filter, Context.RECEIVER_EXPORTED);
-            } else {
-                registerReceiver(br, filter);
+            } catch (Exception e) {
+                e.printStackTrace();
+                showToastOnMainThread("Tải thất bại: " + e.getMessage());
             }
-        } catch (Exception e) {
-            e.printStackTrace();
-            Toast.makeText(this, "Download error: " + e.getMessage(), Toast.LENGTH_LONG).show();
-        }
-    }
-
-    private void installApkFromDownloadUri(Uri apkUri) {
-        // LƯU Ý: apkUri là content://downloads/my_downloads/... (không cần FileProvider)
-        Intent intent = new Intent(Intent.ACTION_VIEW);
-        intent.setDataAndType(apkUri, "application/vnd.android.package-archive");
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        startActivity(intent);
-    }
-
-
-    private void installApk(Uri downloadsUri) {
-        // Dùng FileProvider giống APK (tên file cố định update.apk)
-        File file = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "update.apk");
-        Uri contentUri = FileProvider.getUriForFile(this, getPackageName() + ".provider", file);
-
-        Intent intent = new Intent(Intent.ACTION_VIEW);
-        intent.setDataAndType(contentUri, "application/vnd.android.package-archive");
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        startActivity(intent);
+        }).start();
     }
 
     // ====== Camera / Analyzer ======
@@ -475,7 +449,7 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
                 Preview preview = new Preview.Builder().build();
                 preview.setSurfaceProvider(previewView.getSurfaceProvider());
 
-                ImageAnalysis imageAnalysis = new ImageAnalysis.Builder()
+                imageAnalysis = new ImageAnalysis.Builder()
                         .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                         .build();
                 imageAnalysis.setAnalyzer(
@@ -543,7 +517,7 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
     }
 
     private void takePhoto() {
-        if (imageCapture == null) {
+        if (isRequireUpdate || imageCapture == null) {
             isTakingPhoto = false;
             return;
         }
@@ -689,33 +663,7 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
 
                     String similarity = String.format(Locale.getDefault(), "%.2f%%", similarityVal);
                     User activeUser = new User(name, cardId, similarity);
-
-                    runOnUiThread(() -> {
-                        labelName.setText("Name:");
-                        nameTextView.setText(activeUser.getName());
-                        labelCardId.setText("Card ID:");
-                        cardIDTextView.setText(activeUser.getCardId());
-                        labelSimilarity.setText("Similarity:");
-                        similarityTextView.setText(activeUser.getSimilarity());
-
-                        labelName.setVisibility(View.VISIBLE);
-                        nameTextView.setVisibility(View.VISIBLE);
-                        labelCardId.setVisibility(View.VISIBLE);
-                        cardIDTextView.setVisibility(View.VISIBLE);
-                        labelSimilarity.setVisibility(View.VISIBLE);
-                        similarityTextView.setVisibility(View.VISIBLE);
-
-                        alertTextView.setText("Facial recognition successful");
-                        userInfoPanel.setVisibility(View.VISIBLE);
-                        userInfoPanel.postDelayed(() -> userInfoPanel.setVisibility(View.GONE), 3000);
-
-                        Intent intent = new Intent(MainActivity.this, MenuActivity.class);
-                        intent.putExtra("activeUser", activeUser);
-                        intent.putExtra("show_report", true);
-                        intent.putExtra("camera_id", currentCameraId);
-                        startActivity(intent);
-                        finish();
-                    });
+                    goToNextScreen(activeUser);
                 } else {
                     Log.d("TIMECALL", "🟤 Face not recognized.");
                     runOnUiThread(() -> alertTextView.setText("Face not recognized"));
@@ -730,16 +678,24 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
                 Log.d("TIMECALL", "🕒 Total API round-trip time: " + totalDuration + " ms");
 
                 runOnUiThread(() -> {
-                    startCamera();
+                    if (!navigatingNext) {
+                        startCamera();
+                    }
                     isTakingPhoto = false;
                 });
             }
         }).start();
     }
     private void goToNextScreen(User activeUser) {
-        navigatingNext = true;  // <<< thêm dòng này
+        if (isRequireUpdate) return;
+        navigatingNext = true;
 
         runOnUiThread(() -> {
+            // Chỉ huỷ luồng Phân tích khuôn mặt để giữ luồng Preview mượt mà không bị đóng băng cái cục xúc
+            if (cameraProvider != null && imageAnalysis != null) {
+                cameraProvider.unbind(imageAnalysis);
+            }
+
             labelName.setText("Name:");
             nameTextView.setText(activeUser.getName());
             labelCardId.setText("Card ID:");
@@ -755,15 +711,29 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
             similarityTextView.setVisibility(View.VISIBLE);
 
             alertTextView.setText("Login successful");
+            
+            // Hiệu ứng mượt mà bật lên từ dưới
+            userInfoPanel.setAlpha(0f);
+            userInfoPanel.setTranslationY(100f);
             userInfoPanel.setVisibility(View.VISIBLE);
-            userInfoPanel.postDelayed(() -> userInfoPanel.setVisibility(View.GONE), 1500);
+            userInfoPanel.animate()
+                    .alpha(1f)
+                    .translationY(0f)
+                    .setDuration(300)
+                    .start();
 
-            Intent intent = new Intent(MainActivity.this, MenuActivity.class);
-            intent.putExtra("activeUser", activeUser);
-            intent.putExtra("show_report", true);
-            intent.putExtra("camera_id", currentCameraId);
-            startActivity(intent);
-            finish();
+            // Rút ngắn thời gian chuyển để giảm cảm giác lag
+            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                Intent intent = new Intent(MainActivity.this, MenuActivity.class);
+                intent.putExtra("activeUser", activeUser);
+                intent.putExtra("show_report", true);
+                intent.putExtra("camera_id", currentCameraId);
+                
+                androidx.core.app.ActivityOptionsCompat options = androidx.core.app.ActivityOptionsCompat.makeCustomAnimation(
+                        MainActivity.this, android.R.anim.fade_in, android.R.anim.fade_out);
+                startActivity(intent, options.toBundle());
+                finish();
+            }, 600);
         });
     }
 

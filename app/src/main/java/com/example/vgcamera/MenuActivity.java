@@ -2,6 +2,7 @@ package com.example.vgcamera;
 
 import android.app.RecoverableSecurityException;
 import android.content.ContentUris;
+import android.content.Context;
 import android.content.Intent;
 import android.content.IntentSender;
 import android.content.SharedPreferences;
@@ -86,6 +87,10 @@ public class MenuActivity extends AppCompatActivity {
             deleteButtonText;
     private boolean languageInitialized = false;
     private boolean showReport;
+    private boolean isLanguageDone = false;
+    private boolean isReasonsDone = false;
+    private boolean isErrorDialogShown = false;
+    private JSONArray pendingOrdersToSelect = null;
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -144,9 +149,13 @@ public class MenuActivity extends AppCompatActivity {
 
         prefs = getSharedPreferences("VGCameraPrefs", MODE_PRIVATE);
         currentLanguage = prefs.getString("app_language", null);
+        String existingReasons = prefs.getString("approved_reasons_json", null);
 
-        if (currentLanguage == null) {
-            // Lấy ngôn ngữ từ API bất đồng bộ
+        isLanguageDone = (currentLanguage != null);
+        isReasonsDone = (existingReasons != null);
+
+        if (!isLanguageDone) {
+            // Lấy ngôn ngữ từ API bất đồng bộ (chạy song song)
             getInfoByEmpNo(newUser.getCardId(), showReport);
         } else {
             // Ngôn ngữ đã có sẵn
@@ -161,8 +170,18 @@ public class MenuActivity extends AppCompatActivity {
             if (position >= 0) {
                 spinnerLanguage.setSelection(position);
             }
-            checkReasonsOrContinue(showReport);
         }
+
+        if (!isReasonsDone) {
+            // Lấy Lý do chụp ảnh từ API bất đồng bộ (chạy song song ngay lập tức)
+            String empno = newUser.getCardId();
+            String currentDate = new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(new Date());
+            Log.d("APPROVED_REASONS", "🔄 Fetching approved reasons in PARALLEL");
+            fetchApprovedReasons(empno, currentDate, showReport);
+        }
+
+        // Kích hoạt hàm rào chắn gộp luồng
+        checkAllDone();
 
         handler.post(updateTimeRunnable);
         txtUserName.setText(newUser.getName());
@@ -276,7 +295,8 @@ public class MenuActivity extends AppCompatActivity {
                 SharedPreferences prefs = getSharedPreferences("VGCameraPrefs", MODE_PRIVATE);
                 prefs.edit().putString("app_language", currentLanguage).apply();
 
-                checkReasonsOrContinue(showReport);
+                isLanguageDone = true;
+                checkAllDone();
             });
 
         } catch (JSONException e) {
@@ -284,16 +304,15 @@ public class MenuActivity extends AppCompatActivity {
         }
     }
 
-    private void checkReasonsOrContinue(boolean showReport) {
-        String existingReasons = prefs.getString("approved_reasons_json", null);
-        if (existingReasons == null) {
-            String empno = newUser.getCardId();
-            String currentDate = new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(new Date());
-            Log.d("APPROVED_REASONS", "🔄 Fetching approved reasons synchronously");
-            fetchApprovedReasons(empno, currentDate, showReport);
-        } else {
-            Log.d("APPROVED_REASONS", "✅ Reasons already exist");
-            continueWithLeftoverMedia(showReport);
+    private void checkAllDone() {
+        if (isLanguageDone && isReasonsDone) {
+            if (pendingOrdersToSelect != null) {
+                JSONArray orders = pendingOrdersToSelect;
+                pendingOrdersToSelect = null; // show only once
+                showOrderSelectionDialog(orders, () -> continueWithLeftoverMedia(showReport));
+            } else {
+                continueWithLeftoverMedia(showReport);
+            }
         }
     }
 
@@ -371,6 +390,8 @@ public class MenuActivity extends AppCompatActivity {
         dialog.show();
     }
     private void showAccountNotFoundDialog() {
+        if (isErrorDialogShown) return;
+        isErrorDialogShown = true;
         runOnUiThread(() -> showCustomDialog(
                 R.drawable.ic_x_circle,
                 R.color.red,
@@ -468,6 +489,19 @@ public class MenuActivity extends AppCompatActivity {
         }
     }
 
+    private String getRealPathFromURI(Context context, Uri contentUri) {
+        String[] proj = { MediaStore.Images.Media.DATA };
+        try (Cursor cursor = context.getContentResolver().query(contentUri, proj, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                int column_index = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA);
+                return cursor.getString(column_index);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+
     private void deleteNextFromQueue() {
         if (deleteQueue.isEmpty()) {
             showCustomDialog(
@@ -484,9 +518,19 @@ public class MenuActivity extends AppCompatActivity {
 
         Uri uri = deleteQueue.poll();
         try {
-            int deleted = getContentResolver().delete(uri, null, null);
-            if (deleted == 0) {
-                // Không xóa được, tiếp tục cái tiếp theo
+            String filePath = getRealPathFromURI(this, uri);
+            boolean deletedFile = false;
+            if (filePath != null) {
+                java.io.File file = new java.io.File(filePath);
+                if (file.exists()) {
+                    deletedFile = file.delete();
+                }
+            }
+            
+            if (deletedFile) {
+                android.media.MediaScannerConnection.scanFile(this, new String[]{filePath}, null, null);
+            } else {
+                getContentResolver().delete(uri, null, null);
             }
             deleteNextFromQueue();
         } catch (RecoverableSecurityException e) {
@@ -793,10 +837,14 @@ public class MenuActivity extends AppCompatActivity {
                 JSONArray reasons = order.getJSONArray("reasons");
                 saveReasonsToPreferences(reasons);
                 Log.d("APPROVED_REASONS", "✅ Auto-saved reasons from single order");
-                continueWithLeftoverMedia(showReport);
+                
+                isReasonsDone = true;
+                checkAllDone();
             } else if (countOrders >= 2) {
-                // Show dialog to let user choose
-                showOrderSelectionDialog(orders, () -> continueWithLeftoverMedia(showReport));
+                // Găm lại đợi Language tải xong rồi mới hiển thị Dialog bằng tiếng tương ứng
+                pendingOrdersToSelect = orders;
+                isReasonsDone = true;
+                checkAllDone();
             }
 
         } catch (JSONException e) {
@@ -808,9 +856,12 @@ public class MenuActivity extends AppCompatActivity {
      * Show dialog when no orders found
      */
     private void showNoOrderDialog() {
+        if (isErrorDialogShown) return;
+        isErrorDialogShown = true;
         String title, message, buttonText;
 
-        switch (currentLanguage) {
+        String lang = (currentLanguage != null) ? currentLanguage : "en";
+        switch (lang) {
             case "vi":
                 title = "Thông báo";
                 message = "Bạn chưa có đơn đăng ký chụp ảnh hoặc đơn chưa được duyệt. Vui lòng liên hệ TIT#172";

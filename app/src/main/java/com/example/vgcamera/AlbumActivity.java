@@ -808,18 +808,59 @@ public class AlbumActivity extends AppCompatActivity {
             if (!item.isVideo) {
                 try {
                     Uri imageUri = Uri.parse(item.uri);
-                    Bitmap bitmap = MediaStore.Images.Media.getBitmap(AlbumActivity.this.getContentResolver(), imageUri);
-                    ByteArrayOutputStream stream = new ByteArrayOutputStream();
-                    bitmap.compress(Bitmap.CompressFormat.JPEG, 90, stream);
-                    String base64Image = Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP);
 
-                    JSONObject photoItem = new JSONObject();
-                    photoItem.put("photo", "data:image/jpeg;base64," + base64Image);
+                    // Khắc phục độ trễ của MediaStore Database bằng cách đọc EXIF trực tiếp từ File vật lý
+                    int orientation = ExifInterface.ORIENTATION_NORMAL;
+                    String[] proj = { MediaStore.Images.Media.DATA };
+                    try (Cursor cursor = getContentResolver().query(imageUri, proj, null, null, null)) {
+                        if (cursor != null && cursor.moveToFirst()) {
+                            int colIndex = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA);
+                            String filePath = cursor.getString(colIndex);
+                            if (filePath != null) {
+                                ExifInterface exif = new ExifInterface(filePath);
+                                orientation = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL);
+                            }
+                        }
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
 
-                    JSONObject pos = getExifLocationFromUri(imageUri);
-                    photoItem.put("pos", pos);
+                    // Đọc file ảnh dưới dạng InputStream
+                    InputStream input = getContentResolver().openInputStream(imageUri);
+                    Bitmap bitmap = BitmapFactory.decodeStream(input);
+                    input.close();
 
-                    dataArray.put(photoItem);
+                    Matrix matrix = new Matrix();
+                    if (orientation == ExifInterface.ORIENTATION_ROTATE_90) {
+                        matrix.postRotate(90);
+                    } else if (orientation == ExifInterface.ORIENTATION_ROTATE_180) {
+                        matrix.postRotate(180);
+                    } else if (orientation == ExifInterface.ORIENTATION_ROTATE_270) {
+                        matrix.postRotate(270);
+                    }
+
+                    // Quay cứng Bitmap vật lý nếu có góc xoay
+                    if (!matrix.isIdentity() && bitmap != null) {
+                        Bitmap rotatedBitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), matrix, true);
+                        if (rotatedBitmap != bitmap) {
+                            bitmap.recycle();
+                            bitmap = rotatedBitmap;
+                        }
+                    }
+
+                    if (bitmap != null) {
+                        ByteArrayOutputStream stream = new ByteArrayOutputStream();
+                        bitmap.compress(Bitmap.CompressFormat.JPEG, 90, stream);
+                        String base64Image = Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP);
+
+                        JSONObject photoItem = new JSONObject();
+                        photoItem.put("photo", "data:image/jpeg;base64," + base64Image);
+
+                        JSONObject pos = getExifLocationFromUri(imageUri);
+                        photoItem.put("pos", pos);
+
+                        dataArray.put(photoItem);
+                    }
 
                 } catch (Exception e) {
                     e.printStackTrace();

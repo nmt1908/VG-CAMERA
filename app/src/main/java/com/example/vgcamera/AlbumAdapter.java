@@ -10,7 +10,9 @@ import android.app.RecoverableSecurityException;
 import android.content.Context;
 import android.content.IntentSender;
 import android.content.SharedPreferences;
+import android.database.Cursor;
 import android.net.Uri;
+import android.provider.MediaStore;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -213,7 +215,26 @@ public class AlbumAdapter extends RecyclerView.Adapter<AlbumAdapter.ViewHolder> 
                 if (item.isSelected) {
                     Uri uri = Uri.parse(item.uri);
                     try {
-                        int deleted = context.getContentResolver().delete(uri, null, null);
+                        String filePath = getRealPathFromURI(context, uri);
+                        boolean deletedFile = false;
+                        if (filePath != null) {
+                            java.io.File file = new java.io.File(filePath);
+                            if (file.exists()) {
+                                deletedFile = file.delete();
+                            }
+                        }
+                        
+                        // Fallback in case raw delete doesn't work or path is null
+                        int deleted = 0;
+                        if (deletedFile) {
+                            deleted = 1;
+                            // Notify MediaStore to remove the dangling pointer silently
+                            android.media.MediaScannerConnection.scanFile(context, new String[]{filePath}, null, null);
+                        } else {
+                            // Only call ContentResolver (which prompts) if raw deletion failed
+                            deleted = context.getContentResolver().delete(uri, null, null);
+                        }
+
                         if (deleted > 0) {
                             iterator.remove();
                         } else {
@@ -344,6 +365,19 @@ public class AlbumAdapter extends RecyclerView.Adapter<AlbumAdapter.ViewHolder> 
             if (item.isSelected) count++;
         }
         return count;
+    }
+
+    private String getRealPathFromURI(Context context, Uri contentUri) {
+        String[] proj = { MediaStore.Images.Media.DATA };
+        try (Cursor cursor = context.getContentResolver().query(contentUri, proj, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                int column_index = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA);
+                return cursor.getString(column_index);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return null;
     }
 
     static class ViewHolder extends RecyclerView.ViewHolder {

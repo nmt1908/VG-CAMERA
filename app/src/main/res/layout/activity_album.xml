@@ -120,8 +120,7 @@
             android:paddingStart="16dp"
             android:paddingEnd="16dp"
             android:layout_marginStart="24dp"
-            android:backgroundTint="#2196F3"
-            android:background="@drawable/rounded_button_blue"
+            android:background="@drawable/bg_btn_keep"
             android:clickable="true"
             android:focusable="true">
 

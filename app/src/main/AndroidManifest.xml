@@ -71,14 +71,21 @@
             android:screenOrientation="locked"
             android:configChanges="screenSize|orientation"/>
         <activity
-            android:name="com.example.vgcamera.MainActivity"
+            android:name=".MainActivity"
             android:exported="true"
-            android:screenOrientation="locked">
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.VGCamera">
             <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        
+        <activity
+            android:name=".MeshTestActivity"
+            android:exported="true"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.VGCamera" />
 
         <service
             android:name="com.google.mlkit.common.internal.MlKitComponentDiscoveryService"

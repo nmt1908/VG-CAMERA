@@ -28,6 +28,7 @@ public class SettingActivity extends AppCompatActivity {
     private SharedPreferences prefs;
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        androidx.appcompat.app.AppCompatDelegate.setDefaultNightMode(androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_NO);
         super.onCreate(savedInstanceState);
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE);
         setContentView(R.layout.activity_setting);
@@ -148,7 +149,7 @@ public class SettingActivity extends AppCompatActivity {
     }
     @Override
     public void onBackPressed() {
-        // Không gọi super -> chặn quay lại
+        super.onBackPressed();
     }
 
 }

@@ -7,6 +7,7 @@ import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
@@ -34,8 +35,7 @@ import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
-
-
+import android.view.LayoutInflater;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
@@ -52,6 +52,7 @@ import androidx.core.content.FileProvider;
 
 import com.google.common.util.concurrent.ListenableFuture;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
@@ -68,6 +69,10 @@ import java.util.Locale;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
+import androidx.compose.ui.platform.ComposeView;
+import com.google.mlkit.common.sdkinternal.MlKitContext;
+import com.google.mlkit.vision.facemesh.FaceMesh;
+import com.example.vgcamera.ui.ComposeBridge;
 import okhttp3.MediaType;
 import okhttp3.MultipartBody;
 import okhttp3.OkHttpClient;
@@ -86,45 +91,82 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
     private ImageCapture imageCapture;
     private ImageAnalysis imageAnalysis;
     private ProcessCameraProvider cameraProvider;
+    private com.google.mlkit.vision.facemesh.FaceMeshDetector staticDetector;
 
     private boolean isTakingPhoto = false;
     private final OkHttpClient httpClient = new OkHttpClient();
     private long faceStraightStartTime = 0;
     private String currentCameraId = "0";
 
-    private LinearLayout loadingContainer, userInfoPanel;
+    // UI States
+    private static final int STATE_IDLE = 0;
+    private static final int STATE_DETECTING = 1;
+    private static final int STATE_PROCESSING = 2;
+    private static final int STATE_COUNTDOWN = 3;
+    private static final int STATE_SUCCESS = 4;
+    private int currentUIState = STATE_IDLE;
+    
+    private long countdownStartTime = 0;
+
+    private ComposeView composeUserInfo;
+    private User activeUserForCompose = null;
+    private boolean isUserInfoVisible = false;
+    private boolean isExitDialogVisible = false;
+    private boolean isFaceDetected = false;
+    private String currentLanguage = "en";
+    private String exitTitle = "Confirmation", exitMsg = "Do you want to exit?", exitConfirm = "Exit", exitCancel = "Cancel";
+
+    // Face Metadata for Compose
+    private android.graphics.Rect lastFaceRect = null;
+    private float[] lastMeshPoints = null;
+    private int lastImageWidth = 0;
+    private int lastImageHeight = 0;
+    private int lastImageRotation = 0;
+    private Bitmap frozenBitmap = null;
+
     private ProgressBar loadingSpinner;
     private volatile boolean isLoginDialogShowing = false; // đang mở dialog login?
     private boolean navigatingNext = false;
     private boolean isRequireUpdate = false;
-    private TextView alertTextView, labelName, nameTextView, labelCardId, cardIDTextView, labelSimilarity, similarityTextView, appTitle;
+    private TextView appTitle;
     private ImageView appLogo;
 
     // ====== Lifecycle ======
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        androidx.appcompat.app.AppCompatDelegate.setDefaultNightMode(androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_NO);
         super.onCreate(savedInstanceState);
+        
+        // Khởi tạo ML Kit nếu ContentProvider chưa kịp chạy
+        try {
+            MlKitContext.initializeIfNeeded(this);
+        } catch (Exception e) {
+            Log.e("MLKIT", "Manual init failed", e);
+        }
+        
         // giống APK: chặn chụp màn hình
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE);
         setContentView(R.layout.activity_main);
+
+        staticDetector = com.google.mlkit.vision.facemesh.FaceMeshDetection.getClient(
+            new com.google.mlkit.vision.facemesh.FaceMeshDetectorOptions.Builder()
+                .build()
+        );
+
+        SharedPreferences prefs = getSharedPreferences("VGCameraPrefs", MODE_PRIVATE);
+        currentLanguage = prefs.getString("app_language", "en");
+        updateTextsByLanguage(currentLanguage);
 
         if (!isInternetAvailable()) {
             Toast.makeText(this, "No Internet Connection", Toast.LENGTH_LONG).show();
         }
 
         // Init views
-        loadingContainer = findViewById(R.id.loadingContainer);
-        userInfoPanel = findViewById(R.id.userInfoPanel);
+        composeUserInfo = findViewById(R.id.composeUserInfo);
+        updateComposeUI();
+
         previewView = findViewById(R.id.previewView);
         graphicOverlay = findViewById(R.id.graphicOverlay);
-        alertTextView = findViewById(R.id.labelAlert);
-        labelName = findViewById(R.id.labelUserName);
-        nameTextView = findViewById(R.id.userName);
-        labelCardId = findViewById(R.id.labelUserCardId);
-        cardIDTextView = findViewById(R.id.userCardId);
-        labelSimilarity = findViewById(R.id.labelUserSimilarity);
-        similarityTextView = findViewById(R.id.userSimilarity);
-        loadingSpinner = findViewById(R.id.loadingSpinner);
         appTitle = findViewById(R.id.appTitle);
         appLogo = findViewById(R.id.appLogo);
         if (appLogo != null) appLogo.setImageResource(R.drawable.logo);
@@ -150,6 +192,9 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
         String cameraId = getIntent().getStringExtra("camera_id");
         if (!TextUtils.isEmpty(cameraId)) currentCameraId = cameraId;
 
+        if (appLogo != null) {
+            appLogo.setOnClickListener(v -> showLoginDialog());
+        }
 
         // Quyền camera & Bộ nhớ
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
@@ -161,9 +206,56 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
                 Manifest.permission.WRITE_EXTERNAL_STORAGE
             }, 101);
         }
-        if (appLogo != null) {
-            appLogo.setOnClickListener(v -> showLoginDialog());
-        }
+    }
+
+    private void updateComposeUI() {
+        if (composeUserInfo == null) return;
+        ComposeBridge.setMainOverlayContent(
+                composeUserInfo,
+                activeUserForCompose,
+                isUserInfoVisible,
+                currentUIState,
+                frozenBitmap,
+                lastFaceRect,
+                lastMeshPoints,
+                lastImageWidth,
+                lastImageHeight,
+                lastImageRotation,
+                isExitDialogVisible,
+                exitTitle,
+                exitMsg,
+                exitConfirm,
+                exitCancel,
+                () -> {
+                    // Confirm Exit
+                    isExitDialogVisible = false;
+                    MainActivity.super.onBackPressed();
+                },
+                () -> {
+                    // Dismiss Exit
+                    isExitDialogVisible = false;
+                    updateComposeUI();
+                }
+        );
+    }
+
+    // Tiện ích cập nhật state từ Java
+    private void showModernUserInfo(User user) {
+        runOnUiThread(() -> {
+            activeUserForCompose = user;
+            isUserInfoVisible = true;
+            // Giữ state PROCESSING cho đến khi hiệu ứng kết thúc hoặc chuyển màn
+            updateComposeUI();
+        });
+    }
+
+    private void hideModernUserInfo() {
+        runOnUiThread(() -> {
+            isUserInfoVisible = false;
+            currentUIState = STATE_IDLE;
+            frozenBitmap = null;
+            updateComposeUI();
+        });
     }
 
     private void checkStorageAndStartCamera() {
@@ -487,81 +579,159 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
     }
 
     @Override
-    public void onAverageLuminance(double luminance) {
-        // Giữ nguyên như bản hiện tại (logic chuyển camera theo ánh sáng đã comment trong code của bạn)
-    }
+    public void onFaceMeshDetected(com.google.mlkit.vision.facemesh.FaceMesh mesh, int width, int height, int rotation, boolean isLookingStraight) {
+        if (currentUIState == STATE_PROCESSING || currentUIState == STATE_SUCCESS) return;
 
-    @Override
-    public void onFaceAreaLarge(boolean isLarge) {
-        // Hook sẵn nếu cần idle chuyển màn (đã comment trong bản hiện tại)
-    }
-
-    @Override
-    public void onFaceLookingStraight() {
         runOnUiThread(() -> {
-            if (faceStraightStartTime == 0) {
-                faceStraightStartTime = System.currentTimeMillis();
-            } else {
-                long elapsed = System.currentTimeMillis() - faceStraightStartTime;
-                if (elapsed >= STRAIGHT_FACE_DURATION && !isTakingPhoto) {
-                    isTakingPhoto = true;
-                    takePhoto();
+            lastFaceRect = mesh.getBoundingBox();
+            java.util.List<com.google.mlkit.vision.facemesh.FaceMeshPoint> points = mesh.getAllPoints();
+            lastMeshPoints = new float[points.size() * 2];
+            for (int i = 0; i < points.size(); i++) {
+                lastMeshPoints[i * 2] = points.get(i).getPosition().getX();
+                lastMeshPoints[i * 2 + 1] = points.get(i).getPosition().getY();
+            }
+
+            lastImageWidth = width;
+            lastImageHeight = height;
+            lastImageRotation = rotation;
+            
+            // Xử lý logic đếm ngược nếu mặt đang ở target và nhìn thẳng
+            if (currentUIState == STATE_COUNTDOWN) {
+                if (!isLookingStraight) {
+                    currentUIState = STATE_DETECTING;
+                    countdownStartTime = 0;
+                } else {
+                    long elapsed = System.currentTimeMillis() - countdownStartTime;
+                    if (elapsed >= 2000) {
+                        lockAndProcess();
+                    }
                 }
+            } else if (currentUIState != STATE_PROCESSING && currentUIState != STATE_SUCCESS) {
+                currentUIState = STATE_DETECTING;
+            }
+            // Chỉ update Compose nếu không đang xử lý ảnh tĩnh
+            if (currentUIState != STATE_PROCESSING && currentUIState != STATE_SUCCESS) {
+                updateComposeUI();
             }
         });
     }
 
     @Override
-    public void onFaceNotLookingStraight() {
-        runOnUiThread(() -> faceStraightStartTime = 0);
-    }
-
-    private void takePhoto() {
-        if (isRequireUpdate || imageCapture == null) {
-            isTakingPhoto = false;
-            return;
-        }
-        String filename = "IMG_" + System.currentTimeMillis() + ".jpg";
-        File dir = getExternalFilesDir(Environment.DIRECTORY_PICTURES);
-        if (dir == null) {
-            isTakingPhoto = false;
-            return;
-        }
-        File file = new File(dir, filename);
-
-        ImageCapture.OutputFileOptions outputOptions =
-                new ImageCapture.OutputFileOptions.Builder(file).build();
-
-        imageCapture.takePicture(outputOptions, ContextCompat.getMainExecutor(this),
-                new ImageCapture.OnImageSavedCallback() {
-                    @Override
-                    public void onImageSaved(@NonNull ImageCapture.OutputFileResults outputFileResults) {
-                        uploadImageToApi(file);
-                    }
-
-                    @Override
-                    public void onError(@NonNull ImageCaptureException exception) {
-                        exception.printStackTrace();
-                        isTakingPhoto = false;
-                    }
-                });
-    }
-
-    // ====== API Upload (giữ nguyên luồng giống bản hiện tại + log/timeout/fallback như APK) ======
-    private void uploadImageToApi(File file) {
+    public void onNoFaceDetected() {
+        if (currentUIState == STATE_PROCESSING || currentUIState == STATE_SUCCESS) return;
         runOnUiThread(() -> {
-            loadingContainer.setVisibility(View.VISIBLE);
-            loadingSpinner.setVisibility(View.VISIBLE);
+            if (currentUIState != STATE_IDLE) {
+                currentUIState = STATE_IDLE;
+                countdownStartTime = 0;
+                lastFaceRect = null;
+                lastMeshPoints = null;
+                updateComposeUI();
+            }
         });
+    }
+
+    @Override
+    public void onFaceInTarget(com.google.mlkit.vision.facemesh.FaceMesh mesh, boolean isLookingStraight) {
+        if (isTakingPhoto || currentUIState == STATE_PROCESSING || currentUIState == STATE_SUCCESS) return;
+        runOnUiThread(() -> {
+            if (isLookingStraight && currentUIState != STATE_COUNTDOWN) {
+                currentUIState = STATE_COUNTDOWN;
+                countdownStartTime = System.currentTimeMillis();
+                updateComposeUI();
+            }
+        });
+    }
+
+    @Override
+    public void onFaceNotInTarget() {
+        // Có thể reset UI hoặc giữ state DETECTING nhưng không cho chụp
+    }
+
+    @Override
+    public void onAverageLuminance(double luminance) {
+        // Hook dự phòng cho ánh sáng (nếu cần xử lý độ sáng môi trường)
+    }
+
+    private void lockAndProcess() {
+        if (currentUIState == STATE_PROCESSING) return;
+        
+        runOnUiThread(() -> {
+            // 1. Đóng băng hình ảnh
+            frozenBitmap = previewView.getBitmap();
+            if (frozenBitmap == null) return;
+
+            currentUIState = STATE_PROCESSING;
+            countdownStartTime = 0;
+            updateComposeUI();
+
+            // Rung nhẹ khi khóa mặt (Haptic Feedback)
+            try {
+                android.os.Vibrator vibrator = (android.os.Vibrator) getSystemService(android.content.Context.VIBRATOR_SERVICE);
+                if (vibrator != null) {
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                        vibrator.vibrate(android.os.VibrationEffect.createOneShot(60, android.os.VibrationEffect.DEFAULT_AMPLITUDE));
+                    } else {
+                        vibrator.vibrate(60);
+                    }
+                }
+            } catch (Exception ignored) {}
+
+            // 2. Chạy AI trên ảnh tĩnh để Mesh khớp 100%
+            com.google.mlkit.vision.common.InputImage inputImage = 
+                com.google.mlkit.vision.common.InputImage.fromBitmap(frozenBitmap, 0);
+
+            staticDetector.process(inputImage)
+                .addOnSuccessListener(meshes -> {
+                    if (!meshes.isEmpty()) {
+                        com.google.mlkit.vision.facemesh.FaceMesh mesh = meshes.get(0);
+                        java.util.List<com.google.mlkit.vision.facemesh.FaceMeshPoint> points = mesh.getAllPoints();
+                        lastMeshPoints = new float[points.size() * 2];
+                        for (int i = 0; i < points.size(); i++) {
+                            lastMeshPoints[i * 2] = points.get(i).getPosition().getX();
+                            lastMeshPoints[i * 2 + 1] = points.get(i).getPosition().getY();
+                        }
+                        
+                        // Ảnh tĩnh từ getBitmap đã được rotate đúng chiều
+                        lastFaceRect = mesh.getBoundingBox();
+                        lastImageWidth = frozenBitmap.getWidth();
+                        lastImageHeight = frozenBitmap.getHeight();
+                        lastImageRotation = 0; 
+                        
+                        updateComposeUI();
+                    }
+                    // 3. Gửi thẳng tấm ảnh vừa đóng băng lên API
+                    uploadBitmapToApi(frozenBitmap);
+                })
+                .addOnFailureListener(e -> {
+                    uploadBitmapToApi(frozenBitmap);
+                });
+        });
+    }
+
+    private void uploadBitmapToApi(Bitmap bitmap) {
+        if (bitmap == null) return;
+        new Thread(() -> {
+            try {
+                File dir = getExternalFilesDir(Environment.DIRECTORY_PICTURES);
+                File file = new File(dir, "frozen_capture_" + System.currentTimeMillis() + ".jpg");
+                java.io.FileOutputStream out = new java.io.FileOutputStream(file);
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 90, out);
+                out.flush();
+                out.close();
+                uploadImageFile(file);
+            } catch (Exception e) {
+                Log.e("Upload", "Failed to save frozen bitmap", e);
+            }
+        }).start();
+    }
+
+    private void uploadImageFile(File file) {
+        final long processingStartTime = System.currentTimeMillis();
+        final long minProcessingTime = 1600; 
 
         new Thread(() -> {
-            long startTotalTime = System.currentTimeMillis();
             Response response = null;
-            boolean isFallback = false;
-
             try {
-                Log.d("TIMECALL", "🔁 Start uploading image: " + file.getName());
-
                 byte[] fileBytes;
                 try (FileInputStream fis = new FileInputStream(file)) {
                     ByteArrayOutputStream bos = new ByteArrayOutputStream();
@@ -573,114 +743,58 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
 
                 String currentTime = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(new Date());
 
-                // Primary request
-                RequestBody primaryBody = new MultipartBody.Builder()
+                RequestBody body = new MultipartBody.Builder()
                         .setType(MultipartBody.FORM)
                         .addFormDataPart("image_file", file.getName(),
                                 RequestBody.create(fileBytes, MediaType.parse("image/jpeg")))
                         .build();
 
-                Request primaryReq = new Request.Builder()
+                Request req = new Request.Builder()
                         .url("http://10.13.34.166:5001/recognize-anti-spoofing")
                         .addHeader("X-API-Key", "vg_login_app")
                         .addHeader("X-Time", currentTime)
-                        .post(primaryBody)
+                        .post(body)
                         .build();
 
                 OkHttpClient clientWithTimeout = httpClient.newBuilder()
                         .callTimeout(10, TimeUnit.SECONDS)
                         .build();
 
-                String responseBody;
-                try {
-                    Log.d("TIMECALL", "🌐 Calling primary API (port 5001): http://10.13.34.166:5001/recognize-anti-spoofing");
-                    long t0 = System.currentTimeMillis();
-                    response = clientWithTimeout.newCall(primaryReq).execute();
-                    Log.d("TIMECALL", "✅ Primary API responded in " + (System.currentTimeMillis() - t0) + " ms");
-                    Log.d("TIMECALL", "✅ Primary API response code: " + response.code());
-                    responseBody = response.body() != null ? response.body().string() : "";
-                    Log.d("TIMECALL", "✅ Primary API response body: " + responseBody);
-                } catch (Exception ex) {
-                    Log.e("TIMECALL", "❌ Primary API failed: " + ex.getMessage());
-                    Log.d("TIMECALL", "🌐 Falling back to secondary API (port 8001): http://10.1.16.23:8001/api/x/fr/env/face_search");
-                    isFallback = true;
-
-                    RequestBody fbBody = new MultipartBody.Builder()
-                            .setType(MultipartBody.FORM)
-                            .addFormDataPart("env_token", "8d59d8d588f84fc0a24291b8c36b6206")
-                            .addFormDataPart("image_file", file.getName(),
-                                    RequestBody.create(file, MediaType.parse("image/jpeg")))
-                            .build();
-
-                    Request fbReq = new Request.Builder()
-                            .url("http://10.1.16.23:8001/api/x/fr/env/face_search")
-                            .post(fbBody)
-                            .build();
-
-                    long t0 = System.currentTimeMillis();
-                    response = httpClient.newCall(fbReq).execute();
-                    Log.d("TIMECALL", "✅ Fallback API responded in " + (System.currentTimeMillis() - t0) + " ms");
-                    Log.d("TIMECALL", "✅ Fallback API response code: " + response.code());
-                    responseBody = response.body() != null ? response.body().string() : "";
-                    Log.d("TIMECALL", "✅ Fallback API response body: " + responseBody);
-                }
-
-                String finalResponseBody = responseBody;
-                runOnUiThread(() -> {
-                    loadingSpinner.setVisibility(View.GONE);
-                    loadingContainer.setVisibility(View.GONE);
-                });
-
-                if (response == null || !response.isSuccessful()) {
-                    int code = response != null ? response.code() : -1;
-                    Log.e("TIMECALL", (isFallback ? "❌ Fallback" : "❌ Primary") + " API failed with code: " + code);
-                    if (code == 400) {
-                        handleRecognitionFail();
-                    } else {
-                        showToastOnMainThread("API error: " + code);
-                    }
-                    return;
-                }
-
-                JSONObject json = new JSONObject(finalResponseBody);
-
-                if (json.optBoolean("is_fake", false)) {
-                    Log.d("TIMECALL", "🛑 Detected spoofed face.");
-                    handleRecognitionFail();
-                    return;
-                }
-
-                if (json.optInt("is_recognized", 0) == 1) {
-                    String name = json.optString("name");
-                    String cardId = json.optString("id_string");
-                    double similarityVal = json.optDouble("similarity", 0) * 100.0;
-
-                    if (similarityVal <= 55.0) {
-                        Log.d("TIMECALL", "🟡 Similarity too low: " + similarityVal);
+                response = clientWithTimeout.newCall(req).execute();
+                
+                if (response.isSuccessful()) {
+                    String resBody = response.body().string();
+                    JSONObject json = new JSONObject(resBody);
+                    if (json.optBoolean("is_fake", false)) {
                         handleRecognitionFail();
                         return;
                     }
-
-                    String similarity = String.format(Locale.getDefault(), "%.2f%%", similarityVal);
-                    User activeUser = new User(name, cardId, similarity);
-                    goToNextScreen(activeUser);
-                } else {
-                    Log.d("TIMECALL", "🟤 Face not recognized.");
-                    runOnUiThread(() -> alertTextView.setText("Face not recognized"));
-                    handleRecognitionFail();
-                }
-            } catch (Exception e) {
-                e.printStackTrace();
-                showToastOnMainThread("Error: " + e.getMessage());
-                Log.e("FaceAPI_Error", "❗ Exception: " + e.getMessage(), e);
-            } finally {
-                long totalDuration = System.currentTimeMillis() - startTotalTime;
-                Log.d("TIMECALL", "🕒 Total API round-trip time: " + totalDuration + " ms");
-
-                runOnUiThread(() -> {
-                    if (!navigatingNext) {
-                        startCamera();
+                    if (json.optInt("is_recognized", 0) == 1) {
+                        String name = json.optString("name");
+                        String cardId = json.optString("id_string");
+                        double similarityVal = json.optDouble("similarity", 0) * 100.0;
+                        if (similarityVal > 55.0) {
+                            User activeUser = new User(name, cardId, String.format(Locale.getDefault(), "%.2f%%", similarityVal));
+                            long elapsed = System.currentTimeMillis() - processingStartTime;
+                            long remain = Math.max(0, minProcessingTime - elapsed);
+                            new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                                currentUIState = STATE_SUCCESS; // Dừng animation
+                                activeUserForCompose = activeUser;
+                                isUserInfoVisible = true;
+                                updateComposeUI();
+                                new Handler(Looper.getMainLooper()).postDelayed(() -> goToNextScreen(activeUser), 1500);
+                            }, remain);
+                            return;
+                        }
                     }
+                }
+                handleRecognitionFail();
+            } catch (Exception e) {
+                Log.e("API", "Upload error: " + e.getMessage());
+                handleRecognitionFail();
+            } finally {
+                runOnUiThread(() -> {
+                    if (!navigatingNext) startCamera();
                     isTakingPhoto = false;
                 });
             }
@@ -691,70 +805,195 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
         navigatingNext = true;
 
         runOnUiThread(() -> {
-            // Chỉ huỷ luồng Phân tích khuôn mặt để giữ luồng Preview mượt mà không bị đóng băng cái cục xúc
-            if (cameraProvider != null && imageAnalysis != null) {
-                cameraProvider.unbind(imageAnalysis);
-            }
-
-            labelName.setText("Name:");
-            nameTextView.setText(activeUser.getName());
-            labelCardId.setText("Card ID:");
-            cardIDTextView.setText(activeUser.getCardId());
-            labelSimilarity.setText("Similarity:");
-            similarityTextView.setText(activeUser.getSimilarity());
-
-            labelName.setVisibility(View.VISIBLE);
-            nameTextView.setVisibility(View.VISIBLE);
-            labelCardId.setVisibility(View.VISIBLE);
-            cardIDTextView.setVisibility(View.VISIBLE);
-            labelSimilarity.setVisibility(View.VISIBLE);
-            similarityTextView.setVisibility(View.VISIBLE);
-
-            alertTextView.setText("Login successful");
-            
-            // Hiệu ứng mượt mà bật lên từ dưới
-            userInfoPanel.setAlpha(0f);
-            userInfoPanel.setTranslationY(100f);
-            userInfoPanel.setVisibility(View.VISIBLE);
-            userInfoPanel.animate()
-                    .alpha(1f)
-                    .translationY(0f)
-                    .setDuration(300)
-                    .start();
-
-            // Rút ngắn thời gian chuyển để giảm cảm giác lag
-            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-                Intent intent = new Intent(MainActivity.this, MenuActivity.class);
-                intent.putExtra("activeUser", activeUser);
-                intent.putExtra("show_report", true);
-                intent.putExtra("camera_id", currentCameraId);
-                
-                androidx.core.app.ActivityOptionsCompat options = androidx.core.app.ActivityOptionsCompat.makeCustomAnimation(
-                        MainActivity.this, android.R.anim.fade_in, android.R.anim.fade_out);
-                startActivity(intent, options.toBundle());
-                finish();
-            }, 600);
+            if (cameraProvider != null) cameraProvider.unbindAll();
+            showModernUserInfo(activeUser);
         });
+
+        verifyAndProceed(activeUser);
+    }
+
+    private void verifyAndProceed(User activeUser) {
+        String cardId = activeUser.getCardId();
+        String mergedUrl = "http://gmo021.cansportsvg.com/api/camera-api/getInfoAndOrdersByEmpNo";
+        String today = new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(new java.util.Date());
+
+        OkHttpClient client = httpClient.newBuilder()
+                .callTimeout(10, TimeUnit.SECONDS)
+                .build();
+
+        new Thread(() -> {
+            try {
+                okhttp3.RequestBody body = new okhttp3.FormBody.Builder()
+                        .add("empno", cardId)
+                        .add("date", today)
+                        .build();
+                okhttp3.Request req = new okhttp3.Request.Builder()
+                        .url(mergedUrl)
+                        .post(body)
+                        .build();
+
+                String apiLanguage = "en";
+                int countOrders = 0;
+                String reasonsJson = "[]";
+
+                try (okhttp3.Response resp = client.newCall(req).execute()) {
+                    if (resp.isSuccessful() && resp.body() != null) {
+                        JSONObject root = new JSONObject(resp.body().string());
+
+                        JSONObject userObj = root.optJSONObject("user");
+                        if (userObj != null) {
+                            apiLanguage = userObj.optString("language", "en");
+                            SharedPreferences prefs = getSharedPreferences("VGCameraPrefs", MODE_PRIVATE);
+                            prefs.edit().putString("app_language", apiLanguage).apply();
+                            currentLanguage = apiLanguage;
+                        }
+
+                        countOrders = root.optInt("count_orders", 0);
+                        JSONArray arr = root.optJSONArray("orders");
+                        if (arr == null) arr = new JSONArray();
+                        reasonsJson = arr.toString();
+                    }
+                }
+
+                final String finalLanguage = apiLanguage;
+                final int finalCountOrders = countOrders;
+                final String finalReasonsJson = reasonsJson;
+
+                runOnUiThread(() -> {
+                    if (finalCountOrders == 0) {
+                        // Không có đơn → hiện dialog theo ngôn ngữ, bấm OK → văng ra camera
+                        navigatingNext = false;
+                        showNoOrderDialog(finalLanguage);
+                    } else {
+                        // Có đơn → vào MenuActivity kèm language
+                        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                            Intent intent = new Intent(MainActivity.this, MenuActivity.class);
+                            intent.putExtra("activeUser", activeUser);
+                            intent.putExtra("show_report", true);
+                            intent.putExtra("camera_id", currentCameraId);
+                            intent.putExtra("is_login_flow", true);
+                            intent.putExtra("language", finalLanguage);
+                            intent.putExtra("count_orders", finalCountOrders);
+                            intent.putExtra("orders_json", finalReasonsJson); // Truyền danh sách đơn hàng
+
+                            androidx.core.app.ActivityOptionsCompat options =
+                                    androidx.core.app.ActivityOptionsCompat.makeCustomAnimation(
+                                            MainActivity.this, android.R.anim.fade_in, android.R.anim.fade_out);
+                            startActivity(intent, options.toBundle());
+                            finish();
+                        }, 800);
+                    }
+                });
+
+            } catch (Exception e) {
+                Log.e("VERIFY", "verifyAndProceed error: " + e.getMessage(), e);
+                runOnUiThread(() -> {
+                    navigatingNext = false;
+                    Toast.makeText(MainActivity.this, "Lỗi kết nối. Vui lòng thử lại.", Toast.LENGTH_LONG).show();
+                    new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                        startCamera();
+                        isTakingPhoto = false;
+                    }, 500);
+                });
+            }
+        }).start();
+    }
+
+    private void showNoOrderDialog(String lang) {
+        String title, message, buttonText;
+
+        switch (lang) {
+            case "vi":
+                title = "Thông báo";
+                message = "Bạn chưa có đơn đăng ký chụp ảnh hoặc đơn chưa được duyệt. Vui lòng liên hệ TIT#172";
+                buttonText = "OK";
+                break;
+            case "cn":
+                title = "通知";
+                message = "您沒有已批准的照片註冊訂單。請聯繫 TIT#172";
+                buttonText = "確定";
+                break;
+            default: // en
+                title = "Notification";
+                message = "You don't have any approved photo registration order. Please contact TIT#172";
+                buttonText = "OK";
+                break;
+        }
+
+        showCustomDialog(
+                R.drawable.ic_x_circle,
+                R.color.red,
+                title,
+                message,
+                buttonText,
+                () -> {
+                    // Reset UI hoàn toàn để có thể đăng nhập lại
+                    runOnUiThread(() -> {
+                        hideModernUserInfo();
+                        currentUIState = STATE_IDLE;
+                        navigatingNext = false;
+                        isTakingPhoto = false;
+                        startCamera();
+                        updateComposeUI();
+                    });
+                }
+        );
+    }
+
+    public void showCustomDialog(int iconResId, int iconTintColorResId,
+                                 String title, String message,
+                                 String buttonText, Runnable onClose) {
+
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        LayoutInflater inflater = getLayoutInflater();
+        View dialogView = inflater.inflate(R.layout.dialog_common, null);
+        builder.setView(dialogView);
+
+        ImageView icon = dialogView.findViewById(R.id.dialogIcon);
+        TextView titleView = dialogView.findViewById(R.id.dialogTitle);
+        TextView messageView = dialogView.findViewById(R.id.dialogMessage);
+        Button btn = dialogView.findViewById(R.id.dialogButton);
+
+        icon.setImageResource(iconResId);
+
+        int colorToApply = ContextCompat.getColor(this, iconTintColorResId);
+        if (iconTintColorResId == R.color.bluesuccess) {
+            colorToApply = android.graphics.Color.parseColor("#4CAF50"); // Xanh lá
+        }
+
+        icon.setColorFilter(colorToApply);
+        titleView.setText(title);
+        titleView.setTextColor(colorToApply);
+        messageView.setText(message);
+        btn.setText(buttonText);
+        btn.setBackgroundTintList(android.content.res.ColorStateList.valueOf(colorToApply));
+
+        AlertDialog dialog = builder.create();
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
+        }
+        dialog.setCancelable(false);
+
+        btn.setOnClickListener(v -> {
+            dialog.dismiss();
+            if (onClose != null) onClose.run();
+        });
+
+        dialog.show();
     }
 
 
     private void handleRecognitionFail() {
         runOnUiThread(() -> {
-            userInfoPanel.setVisibility(View.VISIBLE);
-            alertTextView.setVisibility(View.VISIBLE);
-            alertTextView.setText("Facial recognition failed");
+            User failUser = new User("Recognition Failed", "------", "0%");
+            showModernUserInfo(failUser);
 
-            labelName.setVisibility(View.GONE);
-            nameTextView.setVisibility(View.GONE);
-            labelCardId.setVisibility(View.GONE);
-            cardIDTextView.setVisibility(View.GONE);
-            labelSimilarity.setVisibility(View.GONE);
-            similarityTextView.setVisibility(View.GONE);
-
-            loadingContainer.setVisibility(View.GONE);
-
-            alertTextView.postDelayed(() -> alertTextView.setText(""), 2000);
-            userInfoPanel.postDelayed(() -> userInfoPanel.setVisibility(View.GONE), 2000);
+            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                hideModernUserInfo();
+                currentUIState = STATE_IDLE;
+                isTakingPhoto = false;
+                updateComposeUI();
+            }, 2000);
         });
     }
 
@@ -790,12 +1029,44 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
     }
 
     @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (staticDetector != null) {
+            staticDetector.close();
+        }
+    }
+
+    @Override
     public void onBackPressed() {
-        new AlertDialog.Builder(this)
-                .setTitle("Xác nhận")
-                .setMessage("Bạn có muốn thoát ứng dụng không?")
-                .setPositiveButton("Thoát", (dialog, which) -> MainActivity.super.onBackPressed())
-                .setNegativeButton("Hủy", null)
-                .show();
+        if (isExitDialogVisible) {
+            isExitDialogVisible = false;
+            updateComposeUI();
+        } else {
+            isExitDialogVisible = true;
+            updateComposeUI();
+        }
+    }
+    private void updateTextsByLanguage(String lang) {
+        switch (lang) {
+            case "vi":
+                exitTitle = "Xác nhận Thoát";
+                exitMsg = "Bạn có chắc chắn muốn thoát khỏi ứng dụng không?";
+                exitConfirm = "Thoát";
+                exitCancel = "Hủy bỏ";
+                break;
+            case "cn":
+                exitTitle = "确认退出";
+                exitMsg = "您确定要退出应用程序吗？";
+                exitConfirm = "退出";
+                exitCancel = "取消";
+                break;
+            case "en":
+            default:
+                exitTitle = "Confirm Exit";
+                exitMsg = "Are you sure you want to exit the application?";
+                exitConfirm = "Exit";
+                exitCancel = "Cancel";
+                break;
+        }
     }
 }

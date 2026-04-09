@@ -1,6 +1,10 @@
 package com.example.vgcamera;
 
 
+import static androidx.compose.ui.graphics.ColorKt.Color;
+
+import static com.google.android.gms.common.util.CollectionUtils.listOf;
+
 import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
@@ -63,6 +67,8 @@ import androidx.camera.video.VideoRecordEvent;
 import androidx.camera.view.PreviewView;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+import androidx.compose.ui.platform.ComposeView;
+import com.example.vgcamera.ui.ComposeBridge;
 
 import com.bumptech.glide.Glide;
 import com.google.android.gms.location.FusedLocationProviderClient;
@@ -81,6 +87,8 @@ import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+
+import kotlin.Triple;
 
 @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
 public class CameraActivity extends AppCompatActivity {
@@ -119,20 +127,39 @@ public class CameraActivity extends AppCompatActivity {
     private Location lastKnownLocation;
     ImageButton photoMode,videoMode;
     private Runnable stopRecordingRunnable;
+    private ComposeView composeOverlay;
+    private boolean isMessageDialogVisible = false;
+    private String messageDialogTitle = "";
+    private String messageDialogBody = "";
+    private Runnable messageDialogAction = null;
+    private String authRequiredTitle, authRequiredMessage;
+    private String dialogConfirmTrans = "Đóng";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        androidx.appcompat.app.AppCompatDelegate.setDefaultNightMode(androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_NO);
         super.onCreate(savedInstanceState);
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE);
         setContentView(R.layout.activity_camera);
+        composeOverlay = findViewById(R.id.composeOverlay);
         newUser = (User) getIntent().getSerializableExtra("activeUser");
+        
+        SharedPreferences prefs = getSharedPreferences("VGCameraPrefs", MODE_PRIVATE);
+        String currentLanguage = prefs.getString("app_language", "en");
+        updateTextsByLanguage(currentLanguage);
+
         if (newUser == null) {
-            Toast.makeText(this, "Please identify your face", Toast.LENGTH_LONG).show();
-            Intent intent = new Intent(CameraActivity.this, MainActivity.class);
-            intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-            startActivity(intent);
-            finish();
-            return; // Dừng không chạy tiếp
+            showModernMessage(
+                authRequiredTitle, 
+                authRequiredMessage, 
+                () -> {
+                    Intent intent = new Intent(CameraActivity.this, MainActivity.class);
+                    intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                    startActivity(intent);
+                    finish();
+                }
+            );
+            return;
         }
 
         FocusRingView focusRingView = findViewById(R.id.focusRingView);
@@ -366,6 +393,33 @@ public class CameraActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         loadLatestAlbumImage();
+        updateCameraComposeUI();
+    }
+
+    private void updateCameraComposeUI() {
+        if (composeOverlay == null) return;
+        ComposeBridge.setSimpleMessageContent(
+                composeOverlay,
+                isMessageDialogVisible,
+                messageDialogTitle,
+                messageDialogBody,
+                dialogConfirmTrans,
+                () -> {
+                    isMessageDialogVisible = false;
+                    if (messageDialogAction != null) {
+                        messageDialogAction.run();
+                    }
+                    updateCameraComposeUI();
+                }
+        );
+    }
+
+    private void showModernMessage(String title, String message, Runnable onConfirm) {
+        this.messageDialogTitle = title;
+        this.messageDialogBody = message;
+        this.messageDialogAction = onConfirm;
+        isMessageDialogVisible = true;
+        updateCameraComposeUI();
     }
 
     private Uri getLatestMediaUri(Context context) {
@@ -846,8 +900,26 @@ public class CameraActivity extends AppCompatActivity {
     }
     @Override
     public void onBackPressed() {
+        super.onBackPressed(); // Trở về Menu trực tiếp theo yêu cầu của người dùng
     }
-
-
-
+    private void updateTextsByLanguage(String lang) {
+        switch (lang) {
+            case "vi":
+                authRequiredTitle = "Yêu cầu đăng nhập";
+                authRequiredMessage = "Vui lòng đăng nhập lại để sử dụng máy ảnh.";
+                dialogConfirmTrans = "Đóng";
+                break;
+            case "cn":
+                authRequiredTitle = "需要登录";
+                authRequiredMessage = "请重新登录以使用相机。";
+                dialogConfirmTrans = "关闭";
+                break;
+            case "en":
+            default:
+                authRequiredTitle = "Login Required";
+                authRequiredMessage = "Please log in again to use the camera.";
+                dialogConfirmTrans = "Close";
+                break;
+        }
+    }
 }

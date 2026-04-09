@@ -30,7 +30,9 @@ import android.widget.Toast;
 import androidx.activity.EdgeToEdge;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.compose.ui.platform.ComposeView;
 import androidx.core.content.ContextCompat;
+import com.example.vgcamera.ui.ComposeBridge;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
@@ -60,10 +62,6 @@ import okhttp3.Response;
 
 public class MenuActivity extends AppCompatActivity {
     User newUser;
-    Button  btnExit,btnStartCamera,btnSetting;
-    private TextView txtUserName,txtClock,txtHello,txtQuestion;
-    private TextView txtNotification;
-    private Spinner spinnerLanguage;
     private final Handler handler = new Handler();
     String currentLanguage = "en";
     private List<LanguageItem> languageList;
@@ -91,11 +89,15 @@ public class MenuActivity extends AppCompatActivity {
     private boolean isReasonsDone = false;
     private boolean isErrorDialogShown = false;
     private JSONArray pendingOrdersToSelect = null;
+    private ComposeView composeView;
+    private boolean isLogoutDialogVisible = false;
+    private boolean isLoginFlow = false;
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        androidx.appcompat.app.AppCompatDelegate.setDefaultNightMode(androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_NO);
         super.onCreate(savedInstanceState);
         EdgeToEdge.enable(this);
-        // getWindow().setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE);
+         getWindow().setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE);
 
         newUser = (User) getIntent().getSerializableExtra("activeUser");
         if (newUser == null) {
@@ -107,68 +109,71 @@ public class MenuActivity extends AppCompatActivity {
             return;
         }
         showReport = getIntent().getBooleanExtra("show_report", false);
-        setContentView(R.layout.activity_menu);
+        isLoginFlow = getIntent().getBooleanExtra("is_login_flow", false);
 
-        // Khởi tạo UI
-        txtNotification = findViewById(R.id.txtNotification);
-        btnExit = findViewById(R.id.btnExit);
-        btnStartCamera = findViewById(R.id.btnStartCamera);
-        txtUserName = findViewById(R.id.txtUserName);
-        txtClock = findViewById(R.id.txtClock);
-        txtHello = findViewById(R.id.txtHello);
-        txtQuestion = findViewById(R.id.txtQuestion);
-        btnSetting = findViewById(R.id.btnSetting);
-        spinnerLanguage = findViewById(R.id.spinnerLanguage);
-
-        // Khởi tạo danh sách ngôn ngữ và adapter trước khi dùng
-        languageList = new ArrayList<>();
-        languageList.add(new LanguageItem("VN", "vi"));
-        languageList.add(new LanguageItem("EN", "en"));
-        languageList.add(new LanguageItem("CN", "cn"));
-        adapter = new LanguageAdapter(this, languageList);
-        spinnerLanguage.setAdapter(adapter);
-
-        spinnerLanguage.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-            @Override
-            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-                if (!languageInitialized) {
-                    languageInitialized = true;
-                    return;
-                }
-
-                currentLanguage = languageList.get(position).getValue();
-                updateTextsByLanguage(currentLanguage);
-
-                SharedPreferences prefs = getSharedPreferences("VGCameraPrefs", MODE_PRIVATE);
-                prefs.edit().putString("app_language", currentLanguage).apply();
-            }
-
-            @Override
-            public void onNothingSelected(AdapterView<?> parent) {}
-        });
-
+        // ✅ Nạp ngôn ngữ NGAY LẬP TỨC: ưu tiên language từ Intent (trực tiếp từ MainActivity)
         prefs = getSharedPreferences("VGCameraPrefs", MODE_PRIVATE);
-        currentLanguage = prefs.getString("app_language", null);
-        String existingReasons = prefs.getString("approved_reasons_json", null);
+        String intentLanguage = getIntent().getStringExtra("language");
+        if (intentLanguage != null && !intentLanguage.isEmpty()) {
+            currentLanguage = intentLanguage;
+        } else {
+            currentLanguage = prefs.getString("app_language", "en");
+        }
 
-        isLanguageDone = (currentLanguage != null);
+        // Tiêu thụ cờ hiệu ngay sau khi đọc để tránh persist khi Activity restart
+        if (isLoginFlow) {
+            getIntent().removeExtra("is_login_flow");
+        }
+
+        // Cập nhật văn bản NGAY TRƯỚC khi vẽ UI
+        updateTextsByLanguage(currentLanguage);
+
+        ComposeView cv = new ComposeView(this);
+        this.composeView = cv;
+        setContentView(cv);
+
+        updateComposeUI();
+
+        String existingReasons = prefs.getString("approved_reasons_json", null);
         isReasonsDone = (existingReasons != null);
 
-        if (!isLanguageDone) {
-            // Lấy ngôn ngữ từ API bất đồng bộ (chạy song song)
-            getInfoByEmpNo(newUser.getCardId(), showReport);
-        } else {
-            // Ngôn ngữ đã có sẵn
-            updateTextsByLanguage(currentLanguage);
-            int position = -1;
-            for (int i = 0; i < languageList.size(); i++) {
-                if (languageList.get(i).getValue().equals(currentLanguage)) {
-                    position = i;
-                    break;
+        // Nếu là đăng nhập bằng khuôn mặt: language + approved_reasons đã được lưu bởi MainActivity
+        //   → không cần gọi lại API, đánh dấu xong để checkAllDone() chạy ngay
+        if (isLoginFlow) {
+            isLanguageDone = true;
+            prefs.edit().putString("app_language", currentLanguage).apply();
+
+            // Nhận dữ liệu đơn hàng từ MainActivity
+            int countOrders = getIntent().getIntExtra("count_orders", 0);
+            String ordersJson = getIntent().getStringExtra("orders_json");
+
+            if (countOrders == 1 && ordersJson != null) {
+                try {
+                    JSONArray ordersArr = new JSONArray(ordersJson);
+                    if (ordersArr.length() > 0) {
+                        saveReasonsToPreferences(ordersArr.getJSONObject(0).getJSONArray("reasons"));
+                        isReasonsDone = true;
+                    }
+                } catch (Exception e) {
+                    Log.e("MENU", "Error auto-saving single order: " + e.getMessage());
                 }
+            } else if (countOrders >= 2 && ordersJson != null) {
+                try {
+                    pendingOrdersToSelect = new JSONArray(ordersJson);
+                    isReasonsDone = true;
+                } catch (Exception e) {
+                    Log.e("MENU", "Error parsing multiple orders from intent: " + e.getMessage());
+                }
+            } else if (countOrders == 0) {
+                // Trường hợp hy hữu không có đơn nhưng vẫn vào được (đã được MainActivity chặn nhưng vẫn set flag an toàn)
+                isReasonsDone = true;
             }
-            if (position >= 0) {
-                spinnerLanguage.setSelection(position);
+        } else {
+            // Không phải login flow (ví dụ: từ CameraActivity quay lại)
+            isLanguageDone = true; // language đã được nạp từ prefs/intent ở trên
+            if (existingReasons == null) {
+                // Chưa có đơn → gọi API để lấy
+                getInfoByEmpNo(newUser.getCardId(), showReport);
             }
         }
 
@@ -183,43 +188,82 @@ public class MenuActivity extends AppCompatActivity {
         // Kích hoạt hàm rào chắn gộp luồng
         checkAllDone();
 
-        handler.post(updateTimeRunnable);
-        txtUserName.setText(newUser.getName());
-
-        btnExit.setOnClickListener(v -> {
-            prefs = getSharedPreferences("VGCameraPrefs", MODE_PRIVATE);
-            SharedPreferences.Editor editor = prefs.edit();
-            editor.clear();
-            editor.apply();
-
-            Intent intent = new Intent(MenuActivity.this, MainActivity.class);
-            intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-            startActivity(intent);
-            finish();
-        });
-
-        btnStartCamera.setOnClickListener(v -> {
-            Intent intent = new Intent(MenuActivity.this, CameraActivity.class);
-            intent.putExtra("activeUser", newUser);
-            startActivity(intent);
-            finish();
-        });
-
-        btnSetting.setOnClickListener(v -> {
-            Intent intent = new Intent(MenuActivity.this, SettingActivity.class);
-            intent.putExtra("activeUser", newUser);
-            startActivity(intent);
-            finish();
-        });
-
-        int photoResIndex = prefs.getInt("photo_resolution_index", 2);
-        int videoResIndex = prefs.getInt("video_resolution_index", 0);
-        if (photoResIndex == 0 || photoResIndex == 1 ) {
-            showNotification("You have selected low or medium resolution!");
-        }
-
-        // Moved checking reasons to sequential flow inside checkReasonsOrContinue()
     }
+
+
+    private void performLogout() {
+        prefs = getSharedPreferences("VGCameraPrefs", MODE_PRIVATE);
+        SharedPreferences.Editor editor = prefs.edit();
+        // Giữ lại app_language, chỉ xóa session data
+        String savedLanguage = prefs.getString("app_language", "en");
+        editor.clear();
+        editor.putString("app_language", savedLanguage); // Khôi phục ngôn ngữ
+        editor.apply();
+
+        Intent intent = new Intent(MenuActivity.this, MainActivity.class);
+        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+        startActivity(intent);
+        finish();
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (isLogoutDialogVisible) {
+            isLogoutDialogVisible = false;
+            updateComposeUI();
+        } else {
+            showLogoutConfirmation();
+        }
+    }
+
+    private void showLogoutConfirmation() {
+        isLogoutDialogVisible = true;
+        updateComposeUI();
+    }
+
+    private void changeLanguage(String newLang) {
+        currentLanguage = newLang;
+        prefs.edit().putString("app_language", newLang).apply();
+        updateTextsByLanguage(newLang);
+        updateComposeUI();
+    }
+
+    private void updateComposeUI() {
+        if (composeView == null) return;
+        ComposeBridge.setMenuContent(
+            composeView,
+            newUser,
+            () -> { // onStartCamera
+                Intent intent = new Intent(MenuActivity.this, CameraActivity.class);
+                intent.putExtra("activeUser", newUser);
+                startActivity(intent);
+                // Removed finish() to allow Back to Menu
+            },
+            () -> { // onSettings
+                Intent intent = new Intent(MenuActivity.this, SettingActivity.class);
+                intent.putExtra("activeUser", newUser);
+                startActivity(intent);
+                // Removed finish() to allow Back to Menu
+            },
+            () -> { // onGallery
+                Intent intent = new Intent(MenuActivity.this, AlbumActivity.class);
+                startActivity(intent);
+            },
+            this::performLogout,
+            isLogoutDialogVisible,
+            () -> { // onLogoutDismiss
+                isLogoutDialogVisible = false;
+                updateComposeUI();
+            },
+            this::showLogoutConfirmation,
+            currentLanguage,
+            lang -> {
+                changeLanguage(lang);
+                return kotlin.Unit.INSTANCE;
+            }
+        );
+    }
+
     public void getInfoByEmpNo(String cardId, boolean showReport) {
         fetchInfo(cardId, showReport, true); // lần đầu, cho phép thử lại
     }
@@ -275,25 +319,28 @@ public class MenuActivity extends AppCompatActivity {
     private void handleUserInfoResponse(String body, String cardId, boolean showReport) {
         try {
             userJson = new JSONObject(body);
-            currentLanguage = userJson.optString("language", "en");
+            String apiLanguage = userJson.optString("language", "en");
 
             runOnUiThread(() -> {
-                Log.d("LANGUAGE", "🌐 Language for " + cardId + ": " + currentLanguage);
-                updateTextsByLanguage(currentLanguage);
-
-                int position = -1;
-                for (int i = 0; i < languageList.size(); i++) {
-                    if (languageList.get(i).getValue().equals(currentLanguage)) {
-                        position = i;
-                        break;
-                    }
-                }
-                if (position >= 0) {
-                    spinnerLanguage.setSelection(position);
-                }
-
+                Log.d("LANGUAGE", "🌐 API Language for " + cardId + ": " + apiLanguage);
+                
+                // Quy tắc: 
+                // 1. Nếu là luồng Đăng nhập (vừa quét mặt xong) -> Ưu tiên API tuyệt đối
+                // 2. Nếu không phải luồng đăng nhập (ví dụ từ Camera quay lại) -> Chỉ lấy API nếu user chưa có lựa chọn nào lưu trong prefs
+                
                 SharedPreferences prefs = getSharedPreferences("VGCameraPrefs", MODE_PRIVATE);
-                prefs.edit().putString("app_language", currentLanguage).apply();
+                String savedLang = prefs.getString("app_language", null);
+                
+                if (isLoginFlow || savedLang == null) {
+                    currentLanguage = apiLanguage;
+                    prefs.edit().putString("app_language", currentLanguage).apply();
+                    updateTextsByLanguage(currentLanguage);
+                    updateComposeUI();
+                } else {
+                    currentLanguage = savedLang;
+                    // Không cần lưu lại prefs vì ta ưu tiên cái cũ đang dùng
+                    updateTextsByLanguage(currentLanguage);
+                }
 
                 isLanguageDone = true;
                 checkAllDone();
@@ -327,10 +374,7 @@ public class MenuActivity extends AppCompatActivity {
     }
 
     private void showNotification(String message) {
-        txtNotification.setText(message);
-        txtNotification.setVisibility(View.VISIBLE);
-        Animation slideIn = AnimationUtils.loadAnimation(this, R.anim.slide_in_left_to_right);
-        txtNotification.startAnimation(slideIn);
+        runOnUiThread(() -> Toast.makeText(this, message, Toast.LENGTH_SHORT).show());
     }
     private int countMedia(Uri uri) {
         int count = 0;
@@ -652,23 +696,15 @@ public class MenuActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        handler.removeCallbacks(updateTimeRunnable);
     }
     private void updateTextsByLanguage(String lang) {
         switch (lang) {
             case "vi":
-                txtHello.setText("Xin chào");
-                txtUserName.setText(newUser.getName());
-                btnExit.setText("Thoát");
-                btnStartCamera.setText("Bắt đầu Camera");
-                btnSetting.setText("Cài đặt");
-                txtQuestion.setText("Bạn muốn làm gì hôm nay?");
-                txtNotification.setText("Bạn đã chọn độ phân giải thấp hoặc trung bình!");
                 textExitTitle = "Xác nhận";
                 textExitMessage = "Bạn có muốn đăng xuất và thoát ứng dụng không?";
                 textExitPositive = "Thoát";
                 textExitNegative = "Hủy";
-                reportTitle = "VG-Camera Báo cáo";
+                reportTitle = "Báo cáo VG-Camera";
                 reportMessageTemplate = "Hiện tại còn %s ảnh và %s video còn trong máy.\nBạn muốn giữ lại ảnh và video hay xóa tất cả?";
                 reportKeep = "Giữ lại";
                 reportDeleteAll = "Xóa tất cả";
@@ -677,13 +713,6 @@ public class MenuActivity extends AppCompatActivity {
                 deleteButtonText = "OK";
                 break;
             case "en":
-                txtHello.setText("Hello");
-                txtUserName.setText(newUser.getName());
-                btnExit.setText("Exit");
-                btnStartCamera.setText("Start Camera");
-                btnSetting.setText("Settings");
-                txtQuestion.setText("What would you like to do today?");
-                txtNotification.setText("You have selected low or medium resolution!");
                 textExitTitle = "Confirmation";
                 textExitMessage = "Do you want to log out and exit the app?";
                 textExitPositive = "Exit";
@@ -697,13 +726,6 @@ public class MenuActivity extends AppCompatActivity {
                 deleteButtonText = "OK";
                 break;
             case "cn":
-                txtHello.setText("你好");
-                txtUserName.setText(newUser.getName());
-                btnExit.setText("退出");
-                btnStartCamera.setText("开始摄像头");
-                btnSetting.setText("设置");
-                txtQuestion.setText("你今天想做什么？");
-                txtNotification.setText("您选择了低或中等分辨率！");
                 textExitTitle = "确认";
                 textExitMessage = "您是否要注销并退出应用程序？";
                 textExitPositive = "退出";
@@ -717,53 +739,19 @@ public class MenuActivity extends AppCompatActivity {
                 deleteButtonText = "确定";
                 break;
             default:
-                // Mặc định English
-                txtHello.setText("Hello");
-                txtUserName.setText(newUser.getName());
-                btnExit.setText("Exit");
-                btnStartCamera.setText("Start Camera");
-                btnSetting.setText("Settings");
-                txtQuestion.setText("What would you like to do today?");
-                txtNotification.setText("You have selected low or medium resolution!");
                 textExitTitle = "Confirmation";
                 textExitMessage = "Do you want to log out and exit the app?";
                 textExitPositive = "Exit";
                 textExitNegative = "Cancel";
+                reportTitle = "VG-Camera Report";
+                reportMessageTemplate = "There are currently %s images and %s videos remaining.\nDo you want to keep them or delete all?";
+                reportKeep = "Keep";
+                reportDeleteAll = "Delete All";
                 deleteSuccessTitle = "Deleted";
                 deleteSuccessMessage = "All images and videos have been successfully deleted.";
                 deleteButtonText = "OK";
                 break;
         }
-    }
-
-    private final Runnable updateTimeRunnable = new Runnable() {
-        @Override
-        public void run() {
-            SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss", Locale.getDefault());
-            String currentTime = sdf.format(new Date());
-            txtClock.setText(currentTime);
-            handler.postDelayed(this, 1000); // cập nhật mỗi giây
-        }
-    };
-    @Override
-    public void onBackPressed() {
-        new AlertDialog.Builder(this)
-                .setTitle(textExitTitle)
-                .setMessage(textExitMessage)
-                .setPositiveButton(textExitPositive, (dialog, which) -> {
-                    SharedPreferences prefs = getSharedPreferences("VGCameraPrefs", MODE_PRIVATE);
-                    SharedPreferences.Editor editor = prefs.edit();
-                    editor.clear();
-                    editor.apply();
-
-                    Intent intent = new Intent(MenuActivity.this, MainActivity.class);
-                    intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-                    startActivity(intent);
-
-                    finish();
-                })
-                .setNegativeButton(textExitNegative, null)
-                .show();
     }
 
 

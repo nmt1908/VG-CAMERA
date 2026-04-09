@@ -1,0 +1,47 @@
+/* Chỉnh sửa cốt lõi trong MainActivity.java */
+
+private void lockAndProcess() {
+    if (currentUIState == STATE_PROCESSING) return;
+    
+    runOnUiThread(() -> {
+        // 1. Chụp lại Frame hiện tại để làm nền tĩnh
+        frozenBitmap = previewView.getBitmap();
+        if (frozenBitmap == null) return;
+
+        currentUIState = STATE_PROCESSING;
+        countdownSeconds = 0;
+        updateComposeUI();
+
+        // 2. Chạy AI trực tiếp trên ảnh tĩnh để lấy Mesh chuẩn xác 100%
+        com.google.mlkit.vision.common.InputImage staticImage = 
+            com.google.mlkit.vision.common.InputImage.fromBitmap(frozenBitmap, 0);
+            
+        // Sử dụng detector hiện có
+        detector.process(staticImage)
+            .addOnSuccessListener(meshes -> {
+                if (!meshes.isEmpty()) {
+                    com.google.mlkit.vision.facemesh.FaceMesh mesh = meshes.get(0);
+                    java.util.List<com.google.mlkit.vision.facemesh.FaceMeshPoint> points = mesh.getAllPoints();
+                    lastMeshPoints = new float[points.size() * 2];
+                    for (int i = 0; i < points.size(); i++) {
+                        lastMeshPoints[i * 2] = points.get(i).getPosition().getX();
+                        lastMeshPoints[i * 2 + 1] = points.get(i).getPosition().getY();
+                    }
+                    
+                    // Cập nhật tọa độ ảnh tĩnh (không xoay vì bitmap đã upright)
+                    lastImageWidth = frozenBitmap.getWidth();
+                    lastImageHeight = frozenBitmap.getHeight();
+                    lastImageRotation = 0;
+                    
+                    updateComposeUI();
+                }
+                
+                // 3. Tiến hành chụp ảnh thật gửi API (hoặc dùng luôn frozenBitmap)
+                takePhoto();
+            })
+            .addOnFailureListener(e -> {
+                // Nếu lỗi AI tĩnh, vẫn thử gọi API hoặc reset
+                takePhoto();
+            });
+    });
+}

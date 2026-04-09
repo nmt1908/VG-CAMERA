@@ -60,6 +60,8 @@ import androidx.media3.ui.AspectRatioFrameLayout;
 import androidx.media3.ui.PlayerView;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+import androidx.compose.ui.platform.ComposeView;
+import com.example.vgcamera.ui.ComposeBridge;
 
 import com.android.volley.RequestQueue;
 import com.android.volley.toolbox.JsonObjectRequest;
@@ -109,7 +111,6 @@ public class AlbumActivity extends AppCompatActivity {
     private RecyclerView recyclerView;
     private AlbumAdapter adapter;
     private List<MediaItem> mediaItems = new ArrayList<>();
-    private ImageView selectAllCircle;
     private TextView titleText;
     private boolean isAllSelected = false;
     private LinearLayout actionBarLayout;
@@ -129,9 +130,13 @@ public class AlbumActivity extends AppCompatActivity {
     private String loadingText;
     private String permissionDeniedText;
     private String defaultTitle = "Album";
-    private String uploadSuccess, uploadMessage, uploadFailed, uploadFailedMessage, uploadButtonText;
-    private  TextView selectAllText;
-    private String selectAllTextString = "Select All";
+    private String uploadSuccess = "", uploadMessage = "", uploadFailed = "", uploadFailedMessage = "", uploadButtonText = "", uploadGalleryText = "";
+    private String deleteTitleTrans = "", deleteMsgTrans = "", deleteConfirmTrans = "";
+    private String cancelTextTrans = "Hủy bỏ";
+    private String uploadTitleTrans = "", uploadMsgTrans = "", uploadConfirmTrans = "";
+    private android.widget.Button selectAllText;
+    private String selectAllTextString = "Chọn tất cả";
+    private String deselectAllTextString = "Bỏ chọn";
 
     private List<String> allowedSSIDs = new ArrayList<>();
     final float[] downY = new float[1];
@@ -143,9 +148,22 @@ public class AlbumActivity extends AppCompatActivity {
     // private boolean[] purposeChecked;
     // private final List<Purpose> selectedPurposes = new ArrayList<>();
 
+    private ComposeView composeOverlay;
+    private boolean isUploadDialogVisible = false;
+    private boolean isDeleteDialogVisible = false;
+    private boolean isMessageDialogVisible = false;
+    private String messageTitle = "";
+    private String messageText = "";
+    private Runnable onMessageConfirmRunnable = null;
+    private List<MediaItem> pendingUploadMedia = null;
+    private String authRequiredTitle, authRequiredMessage;
+    private String wifiInvalidTitle, wifiInvalidMessage;
+    private String infoMissingTitle, infoMissingMessage;
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        androidx.appcompat.app.AppCompatDelegate.setDefaultNightMode(androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_NO);
         super.onCreate(savedInstanceState);
         EdgeToEdge.enable(this);
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE);
@@ -156,19 +174,28 @@ public class AlbumActivity extends AppCompatActivity {
         recyclerView = findViewById(R.id.recyclerView);
         titleText = findViewById(R.id.titleText);
         uploadText=findViewById(R.id.uploadText);
-        selectAllCircle = findViewById(R.id.selectAllCircle);
         actionBarLayout = findViewById(R.id.actionBarLayout);
         deleteButton = findViewById(R.id.deleteButton);
         uploadButton = findViewById(R.id.uploadButton);
         selectAllText = findViewById(R.id.selectAllText);
         newUser = (User) getIntent().getSerializableExtra("activeUser");
+        composeOverlay = findViewById(R.id.composeOverlay);
+
+        // ✅ Cập nhật ngôn ngữ TRƯỚC khi vẽ UI để tránh NullPointerException
+        prefs = getSharedPreferences("VGCameraPrefs", MODE_PRIVATE);
+        currentLanguage = prefs.getString("app_language", "en");
+        updateTextsByLanguage(currentLanguage);
+
+        updateAlbumComposeUI();
+
         if (newUser == null) {
-            Toast.makeText(this, "Please identify your face", Toast.LENGTH_LONG).show();
-            Intent intent = new Intent(AlbumActivity.this, MainActivity.class);
-            intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-            startActivity(intent);
-            finish();
-            return; // Dừng không chạy tiếp
+            showModernMessage(authRequiredTitle, authRequiredMessage, () -> {
+                Intent intent = new Intent(AlbumActivity.this, MainActivity.class);
+                intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                startActivity(intent);
+                finish();
+            });
+            return;
         }
 
         // ✅ NEW: Validate approved reasons exist
@@ -185,8 +212,11 @@ public class AlbumActivity extends AppCompatActivity {
 
         getInfoByEmpNo(newUser.getCardId());
         deleteButton.setOnClickListener(v -> {
-            adapter.deleteSelectedItems(); // Cần thêm hàm này trong adapter
-            updateTitle();
+            if (adapter.getSelectedCount() > 0) {
+                adapter.deleteSelectedItems();
+            } else {
+                Toast.makeText(this, "Chưa chọn ảnh/video", Toast.LENGTH_SHORT).show();
+            }
         });
 
         uploadButton.setOnClickListener(v -> {
@@ -201,27 +231,13 @@ public class AlbumActivity extends AppCompatActivity {
             Log.e("SSID_LIST", currentSSID);
 
             if (!allowedSSIDs.contains(currentSSID)) {
-                showCustomDialog(
-                        R.drawable.ic_x_circle,
-                        R.color.red,
-                        "Tải lên thất bại",
-                        "Wifi hiện tại không hợp lệ, Vui lòng kết nối đúng Wifi: " + allowedSSIDsStr,
-                        "OK",
-                        null
-                );
+                showModernMessage(wifiInvalidTitle, wifiInvalidMessage + ": " + allowedSSIDsStr, null);
                 return;
             }
 
             if (userJson == null ||
                     !userJson.has("username") || !userJson.has("empno") || !userJson.has("name")) {
-                showCustomDialog(
-                        R.drawable.ic_x_circle,
-                        R.color.red,
-                        "Tải lên thất bại",
-                        "Thông tin tài khoản của bạn chưa được cập nhật. Vui lòng liên hệ PS#172",
-                        "OK",
-                        null
-                );
+                showModernMessage(infoMissingTitle, infoMissingMessage, null);
                 return;
             }
 
@@ -237,7 +253,9 @@ public class AlbumActivity extends AppCompatActivity {
             }
 
             // ✅ NEW: Load reasons from SharedPreferences and show confirm dialog
-            showUploadConfirmDialog(selectedMedia);
+            pendingUploadMedia = selectedMedia;
+            isUploadDialogVisible = true;
+            updateAlbumComposeUI();
         });
 
 
@@ -297,158 +315,89 @@ public class AlbumActivity extends AppCompatActivity {
             updateSelectAllIcon();
             updateTitle();
         });
-        selectAllCircle.setOnClickListener(v -> {
-            isAllSelected = !isAllSelected;
-            if (isAllSelected) {
-                adapter.selectAll();
-            } else {
-                adapter.deselectAll();
-            }
-            updateSelectAllIcon();
-            updateTitle();
-        });
 
         updateTextsByLanguage(currentLanguage);
         checkPermissionsAndLoad();
     }
 
-    // ❌ OLD: Purpose dialog - now handled in MenuActivity
-    /*
-    private void showPurposeDialogThenConfirm(List<MediaItem> selectedMedia) {
-        if (purposeList.isEmpty() || purposeChecked == null) {
-            Toast.makeText(this, "Purpose chưa load xong", Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        View dialogView = getLayoutInflater().inflate(R.layout.dialog_purpose_common, null);
-        builder.setView(dialogView);
-
-        ImageView icon = dialogView.findViewById(R.id.dialogIcon);
-        TextView titleView = dialogView.findViewById(R.id.dialogTitle);
-        TextView messageView = dialogView.findViewById(R.id.dialogMessage);
-        RecyclerView rv = dialogView.findViewById(R.id.rvPurposes);
-        Button btnCancel = dialogView.findViewById(R.id.btnCancel);
-        Button btnOk = dialogView.findViewById(R.id.btnOk);
-
-        icon.setImageResource(R.drawable.baseline_support_agent_24);
-        icon.setColorFilter(ContextCompat.getColor(this, R.color.bluesuccess));
-        titleView.setText(getPurposeDialogTitle());
-        titleView.setTextColor(ContextCompat.getColor(this, R.color.bluesuccess));
-
-        if ("vi".equals(currentLanguage)) {
-            messageView.setVisibility(View.VISIBLE);
-            messageView.setText("Vui lòng chọn ít nhất 1 lý do");
-        } else if ("cn".equals(currentLanguage)) {
-            messageView.setVisibility(View.VISIBLE);
-            messageView.setText("请至少选择一个原因");
-        } else {
-            messageView.setVisibility(View.VISIBLE);
-            messageView.setText("Please select at least one purpose");
-        }
-
-        rv.setLayoutManager(new androidx.recyclerview.widget.LinearLayoutManager(this));
-        PurposeAdapter purposeAdapter = new PurposeAdapter(
-                purposeList,
-                purposeChecked,
-                currentLanguage,
-                (pos, checked) -> { }
+    private void updateAlbumComposeUI() {
+        if (composeOverlay == null) return;
+        ComposeBridge.setAlbumOverlayContent(
+                composeOverlay,
+                isUploadDialogVisible,
+                isDeleteDialogVisible,
+                isMessageDialogVisible,
+                messageTitle,
+                messageText,
+                uploadTitleTrans,
+                uploadMsgTrans,
+                uploadConfirmTrans,
+                cancelTextTrans,
+                deleteTitleTrans,
+                deleteMsgTrans,
+                deleteConfirmTrans,
+                cancelTextTrans,
+                () -> {
+                    // Upload Confirm
+                    isUploadDialogVisible = false;
+                    executeUpload(pendingUploadMedia);
+                    updateAlbumComposeUI();
+                },
+                () -> {
+                    // Delete Confirm
+                    isDeleteDialogVisible = false;
+                    adapter.deleteSelectedItems();
+                    updateTitle();
+                    updateAlbumComposeUI();
+                },
+                () -> {
+                    // Message Confirm / Dismiss
+                    isMessageDialogVisible = false;
+                    if (onMessageConfirmRunnable != null) {
+                        onMessageConfirmRunnable.run();
+                    }
+                    updateAlbumComposeUI();
+                },
+                () -> {
+                    // General Dismiss
+                    isUploadDialogVisible = false;
+                    isDeleteDialogVisible = false;
+                    isMessageDialogVisible = false;
+                    updateAlbumComposeUI();
+                }
         );
-        rv.setAdapter(purposeAdapter);
-
-        AlertDialog dialog = builder.create();
-        if (dialog.getWindow() != null) {
-            dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
-        }
-        dialog.setCancelable(false);
-
-        btnCancel.setText(getLocalizedString("cancel"));
-        btnCancel.setOnClickListener(v -> dialog.dismiss());
-
-        btnOk.setText(getLocalizedString("ok"));
-        btnOk.setOnClickListener(v -> {
-            selectedPurposes.clear();
-            for (int i = 0; i < purposeChecked.length; i++) {
-                if (purposeChecked[i]) selectedPurposes.add(purposeList.get(i));
-            }
-
-            if (selectedPurposes.isEmpty()) {
-                showCustomDialog(
-                        R.drawable.ic_x_circle,
-                        R.color.red,
-                        "vi".equals(currentLanguage) ? "Thiếu lý do"
-                                : "cn".equals(currentLanguage) ? "缺少原因"
-                                : "Missing purpose",
-                        "vi".equals(currentLanguage) ? "Vui lòng chọn ít nhất 1 lý do."
-                                : "cn".equals(currentLanguage) ? "请至少选择一个原因。"
-                                : "Please select at least one purpose.",
-                        getLocalizedString("ok"),
-                        null
-                );
-                return;
-            }
-
-            dialog.dismiss();
-            showUploadConfirmDialog(selectedMedia);
-        });
-
-        dialog.show();
     }
-    */
 
+    private void showModernMessage(String title, String message, Runnable onConfirm) {
+        runOnUiThread(() -> {
+            messageTitle = title;
+            messageText = message;
+            onMessageConfirmRunnable = onConfirm;
+            isMessageDialogVisible = true;
+            updateAlbumComposeUI();
+        });
+    }
+
+    private void executeUpload(List<MediaItem> selectedMedia) {
+        if (selectedMedia == null) return;
+        List<Purpose> approvedReasons = loadApprovedReasonsFromPreferences();
+        uploadButton.setEnabled(false);
+
+        new MediaUploader(
+                AlbumActivity.this,
+                userJson,
+                approvedReasons,
+                currentLanguage
+        ).uploadSelectedMedia(selectedMedia);
+        logSelectedPurposesOnly(selectedMedia, approvedReasons);
+
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            uploadButton.setEnabled(true);
+        }, 2000);
+    }
 
     // ✅ NEW: Load reasons from SharedPreferences and upload
-    private void showUploadConfirmDialog(List<MediaItem> selectedMedia) {
-        // Load approved reasons from SharedPreferences
-        List<Purpose> approvedReasons = loadApprovedReasonsFromPreferences();
-        
-        LayoutInflater inflater = getLayoutInflater();
-        View dialogView = inflater.inflate(R.layout.dialog_report, null);
-
-        TextView txtTitle = dialogView.findViewById(R.id.txtTitle);
-        TextView txtMessage = dialogView.findViewById(R.id.txtMessage);
-        Button btnCancel = dialogView.findViewById(R.id.btnKeep);
-        Button btnUpload = dialogView.findViewById(R.id.btnDeleteAll);
-
-        txtTitle.setText(uploadDialogTitle);
-        txtMessage.setText(uploadDialogMessage);
-        btnCancel.setText(noText);
-        btnUpload.setText(yesText);
-
-        btnCancel.setBackgroundTintList(android.content.res.ColorStateList.valueOf(android.graphics.Color.parseColor("#FF3B30")));
-        btnUpload.setBackgroundTintList(android.content.res.ColorStateList.valueOf(android.graphics.Color.parseColor("#4CAF50")));
-
-        android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(this)
-                .setView(dialogView)
-                .setCancelable(false)
-                .create();
-
-        if (dialog.getWindow() != null) {
-            dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
-        }
-
-        btnCancel.setOnClickListener(v -> dialog.dismiss());
-
-        btnUpload.setOnClickListener(v -> {
-            uploadButton.setEnabled(false);
-
-            new MediaUploader(
-                    AlbumActivity.this,
-                    userJson,
-                    approvedReasons,  // ✅ Use reasons from SharedPreferences
-                    currentLanguage
-            ).uploadSelectedMedia(selectedMedia);
-            logSelectedPurposesOnly(selectedMedia, approvedReasons);
-
-            new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                uploadButton.setEnabled(true);
-            }, 2000);
-            
-            dialog.dismiss();
-        });
-
-        dialog.show();
-    }
+    // (Modern Upload Dialog is handled via updateAlbumComposeUI state)
     
     /**
      * Load approved reasons from SharedPreferences (saved in MenuActivity)
@@ -458,14 +407,15 @@ public class AlbumActivity extends AppCompatActivity {
         try {
             String reasonsJson = prefs.getString("approved_reasons_json", null);
             if (reasonsJson != null) {
+                Log.d("APPROVED_REASONS", "📦 Raw JSON from SharedPreferences: " + reasonsJson);
                 JSONArray jsonArray = new JSONArray(reasonsJson);
                 reasons = Purpose.listFromJsonArray(jsonArray);
-                Log.d("APPROVED_REASONS", "✅ Loaded " + reasons.size() + " reasons from SharedPreferences");
+                Log.d("APPROVED_REASONS", "✅ Successfully parsed " + reasons.size() + " reasons");
             } else {
-                Log.w("APPROVED_REASONS", "⚠️ No approved reasons found in SharedPreferences");
+                Log.e("APPROVED_REASONS", "❌ CRITICAL: No approved reasons found in SharedPreferences! Upload might miss metadata.");
             }
         } catch (JSONException e) {
-            Log.e("APPROVED_REASONS", "❌ Error loading reasons: " + e.getMessage());
+            Log.e("APPROVED_REASONS", "❌ JSON structure error! Data might be 'orders' instead of 'reasons': " + e.getMessage());
         }
         return reasons;
     }
@@ -490,68 +440,7 @@ public class AlbumActivity extends AppCompatActivity {
         }
     }
 
-    // ❌ OLD: Purpose dialog helper methods - now handled in MenuActivity
-    /*
-    private String getPurposeDialogTitle() {
-        if ("vi".equals(currentLanguage)) return "Chọn lý do (có thể chọn nhiều)";
-        if ("cn".equals(currentLanguage)) return "选择原因（可多选）";
-        return "Select purposes (multi-select)";
-    }
-
-    private void fetchPurposes() {
-        String url = "http://gmo021.cansportsvg.com/api/vg-pab/getPurpose";
-
-        OkHttpClient c = new OkHttpClient();
-        RequestBody emptyBody = RequestBody.create(new byte[0], null);
-
-        Request req = new Request.Builder()
-                .url(url)
-                .post(emptyBody)
-                .build();
-
-        c.newCall(req).enqueue(new okhttp3.Callback() {
-            @Override
-            public void onFailure(Call call, IOException e) {
-                Log.e("PURPOSE", "fetchPurposes failed: " + e.getMessage(), e);
-            }
-
-            @Override
-            public void onResponse(Call call, Response response) throws IOException {
-                int code = response.code();
-                String body = response.body() != null ? response.body().string() : "";
-
-                if (!response.isSuccessful()) {
-                    Log.e("PURPOSE", "fetchPurposes not successful: HTTP " + code);
-                    return;
-                }
-
-                try {
-                    JSONArray arr = new JSONArray(body);
-                    purposeList.clear();
-
-                    for (int i = 0; i < arr.length(); i++) {
-                        JSONObject o = arr.getJSONObject(i);
-
-                        int id = o.optInt("id");
-                        String vi = o.optString("vi");
-                        String en = o.optString("en");
-                        String cn = o.optString("cn");
-
-                        purposeList.add(new Purpose(id, vi, en, cn));
-                    }
-
-                    runOnUiThread(() -> {
-                        purposeChecked = new boolean[purposeList.size()];
-                        Log.d("PURPOSE", "Loaded purposes count = " + purposeList.size());
-                    });
-
-                } catch (JSONException e) {
-                    Log.e("PURPOSE", "parse error: " + e.getMessage(), e);
-                }
-            }
-        });
-    }
-    */
+    // ❌ Removed OLD purpose log/fetch methods
 
 
 
@@ -671,7 +560,7 @@ public class AlbumActivity extends AppCompatActivity {
                 titleText.setText(defaultTitle);
                 selectAllTextString = "Chọn tất cả";
                 if (adapter != null) updateTitle();
-                uploadText.setText("Tải lên");
+                uploadText.setText(uploadGalleryText);
 
                 uploadDialogTitle = "Xác nhận";
                 uploadDialogMessage = "Bạn có chắc muốn tải lên các mục đã chọn không?";
@@ -684,6 +573,23 @@ public class AlbumActivity extends AppCompatActivity {
                 uploadFailed = "Upload thất bại!";
                 uploadFailedMessage = "Vui lòng thử lại sau.";
                 uploadButtonText = "Đóng";
+                uploadGalleryText = "TẢI LÊN THƯ VIỆN";
+                authRequiredTitle = "Yêu cầu đăng nhập";
+                authRequiredMessage = "Vui lòng đăng nhập lại để truy cập Album.";
+                wifiInvalidTitle = "Wifi không hợp lệ";
+                wifiInvalidMessage = "Vui lòng kết nối đúng Wifi để tải lên";
+                infoMissingTitle = "Thiếu thông tin";
+                infoMissingMessage = "Thông tin tài khoản chưa được cập nhật. Vui lòng liên hệ PS#172.";
+                uploadTitleTrans = "Xác nhận Tải lên";
+                uploadMsgTrans = "Bạn có chắc chắn muốn tải lên các hình ảnh/video đã chọn lên hệ thống không?";
+                uploadConfirmTrans = "Tải lên";
+                deleteTitleTrans = "Xác nhận Xóa";
+                deleteMsgTrans = "Các tệp tin bị xóa sẽ không thể khôi phục. Bạn có chắc chắn muốn tiếp tục không?";
+                deleteConfirmTrans = "Xóa bỏ";
+                cancelTextTrans = "Hủy bỏ";
+                selectAllTextString = "Chọn tất cả";
+                deselectAllTextString = "Bỏ chọn";
+                uploadText.setText("Tải lên");
                 break;
 
             case "cn":
@@ -691,6 +597,7 @@ public class AlbumActivity extends AppCompatActivity {
                 titleText.setText(defaultTitle);
                 if (adapter != null) updateTitle();
                 selectAllTextString = "全选";
+                deselectAllTextString = "取消全选";
                 uploadText.setText("上传");
 
                 uploadDialogTitle = "确认";
@@ -704,6 +611,20 @@ public class AlbumActivity extends AppCompatActivity {
                 uploadFailed = "上传失败！";
                 uploadFailedMessage = "请稍后再试。";
                 uploadButtonText = "关闭";
+                uploadGalleryText = "上传图库";
+                authRequiredTitle = "需要登录";
+                authRequiredMessage = "请重新登录以访问相册。";
+                wifiInvalidTitle = "Wifi无效";
+                wifiInvalidMessage = "请连接到正确的 Wifi 以进行上传";
+                infoMissingTitle = "信息缺失";
+                infoMissingMessage = "账号信息未更新。请联系 PS#172。";
+                uploadTitleTrans = "确认上传";
+                uploadMsgTrans = "您确定要将选定的媒体上传到系统吗？";
+                uploadConfirmTrans = "上传";
+                deleteTitleTrans = "确认删除";
+                deleteMsgTrans = "删除的文件无法恢复。您要继续吗？";
+                deleteConfirmTrans = "删除";
+                cancelTextTrans = "取消";
                 break;
 
             case "en":
@@ -713,63 +634,40 @@ public class AlbumActivity extends AppCompatActivity {
                 if (adapter != null) updateTitle();
                 uploadText.setText("Upload");
                 selectAllTextString = "Select All";
+                deselectAllTextString = "Deselect All";
 
                 uploadDialogTitle = "Confirmation";
                 uploadDialogMessage = "Are you sure you want to upload the selected media?";
                 yesText = "Yes";
                 noText = "No";
                 loadingText = "Loading...";
-                permissionDeniedText = "Cannot delete item without permission";
+                permissionDeniedText = "Could not delete selected items because permission was not granted";
                 uploadSuccess = "Upload Successful!";
-                uploadMessage = "All images have been uploaded.";
+                uploadMessage = "All images and videos have been uploaded.";
                 uploadFailed = "Upload Failed!";
                 uploadFailedMessage = "Please try again later.";
                 uploadButtonText = "Close";
+                uploadGalleryText = "UPLOAD TO GALLERY";
+                authRequiredTitle = "Login Required";
+                authRequiredMessage = "Please log in again to access Album.";
+                wifiInvalidTitle = "Invalid Wifi";
+                wifiInvalidMessage = "Please connect to the correct Wifi to upload";
+                infoMissingTitle = "Information Missing";
+                infoMissingMessage = "Account info not updated. Please contact PS#172.";
+                uploadTitleTrans = "Confirm Upload";
+                uploadMsgTrans = "Are you sure you want to upload the selected media to the system?";
+                uploadConfirmTrans = "Upload";
+                deleteTitleTrans = "Confirm Delete";
+                deleteMsgTrans = "Deleted files cannot be recovered. Do you want to continue?";
+                deleteConfirmTrans = "Delete";
+                cancelTextTrans = "Cancel";
                 break;
         }
         if (!isAllSelected && selectAllText != null) {
             selectAllText.setText(selectAllTextString);
         }
     }
-    public void showCustomDialog(int iconResId, int iconTintColorResId,
-                                 String title, String message,
-                                 String buttonText, Runnable onClose) {
-
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        LayoutInflater inflater = getLayoutInflater();
-        View dialogView = inflater.inflate(R.layout.dialog_common, null);
-        builder.setView(dialogView);
-
-        ImageView icon = dialogView.findViewById(R.id.dialogIcon);
-        TextView titleView = dialogView.findViewById(R.id.dialogTitle);
-        TextView messageView = dialogView.findViewById(R.id.dialogMessage);
-        Button btn = dialogView.findViewById(R.id.dialogButton);
-
-        icon.setImageResource(iconResId);
-        
-        int colorToApply = ContextCompat.getColor(this, iconTintColorResId);
-        if (iconTintColorResId == R.color.bluesuccess) {
-            colorToApply = android.graphics.Color.parseColor("#4CAF50"); // Xanh lá
-        }
-        
-        icon.setColorFilter(colorToApply);
-        titleView.setText(title);
-        titleView.setTextColor(colorToApply);
-        messageView.setText(message);
-        btn.setText(buttonText);
-        btn.setBackgroundTintList(android.content.res.ColorStateList.valueOf(colorToApply));
-
-        AlertDialog dialog = builder.create();
-        dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
-        dialog.setCancelable(false);
-
-        btn.setOnClickListener(v -> {
-            dialog.dismiss();
-            if (onClose != null) onClose.run();
-        });
-
-        dialog.show();
-    }
+    // ❌ Removed OLD showCustomDialog method
 
     public void uploadSelectedMedia(List<MediaItem> selectedItems) {
         // Hiển thị loading trước khi upload
@@ -983,24 +881,24 @@ public class AlbumActivity extends AppCompatActivity {
                     }
 
                     if (response.isSuccessful()) {
-                        showCustomDialog(
+                        adapter.showCustomDialog(
                                 R.drawable.check_circle,
                                 R.color.bluesuccess,
                                 uploadSuccess,
                                 uploadMessage,
-                                uploadButtonText,
+                                getLocalizedString("ok"),
                                 () -> {
                                     adapter.deselectAll();
                                     adapter.notifyDataSetChanged();
                                 }
                         );
                     } else {
-                        showCustomDialog(
+                        adapter.showCustomDialog(
                                 R.drawable.ic_x_circle,
                                 R.color.red,
                                 uploadFailed,
                                 uploadFailedMessage,
-                                uploadButtonText,
+                                getLocalizedString("close"),
                                 null
                         );
                     }
@@ -1013,12 +911,12 @@ public class AlbumActivity extends AppCompatActivity {
 
 
     public void showUploadSuccessDialog() {
-        showCustomDialog(
+        adapter.showCustomDialog(
                 R.drawable.check_circle,
                 R.color.bluesuccess,
                 uploadSuccess,
                 uploadMessage,
-                uploadButtonText,
+                getLocalizedString("ok"),
                 () -> {
                     adapter.deselectAll();
                     adapter.notifyDataSetChanged();
@@ -1301,15 +1199,8 @@ public class AlbumActivity extends AppCompatActivity {
 
     private void updateSelectAllIcon() {
         if (isAllSelected) {
-            selectAllCircle.setImageResource(R.drawable.ic_selected_circle);
-            selectAllText.setVisibility(View.GONE); // Ẩn chữ khi đã chọn hết
-            selectAllCircle.setVisibility(View.VISIBLE);
-
-
+            selectAllText.setText(deselectAllTextString);
         } else {
-            selectAllCircle.setImageResource(R.drawable.ic_unselected_circle);
-            selectAllCircle.setVisibility(View.GONE);
-            selectAllText.setVisibility(View.VISIBLE); // Hiện chữ khi chưa chọn hết
             selectAllText.setText(selectAllTextString);
         }
     }
@@ -1658,7 +1549,7 @@ public class AlbumActivity extends AppCompatActivity {
                             adapter.deselectAll();
                             adapter.notifyDataSetChanged();
 
-                            showCustomDialog(
+                            adapter.showCustomDialog(
                                     R.drawable.check_circle,
                                     R.color.bluesuccess,
                                     getLocalizedString("delete_success_title"),
@@ -1667,7 +1558,7 @@ public class AlbumActivity extends AppCompatActivity {
                                     null
                             );
                         } else {
-                            showCustomDialog(
+                            adapter.showCustomDialog(
                                     R.drawable.ic_x_circle,
                                     R.color.red,
                                     getLocalizedString("delete_failed_title"),
@@ -1746,5 +1637,11 @@ public class AlbumActivity extends AppCompatActivity {
     }
     @Override
     public void onBackPressed() {
+        if (adapter != null && adapter.isSelectionMode()) {
+            adapter.deselectAll();
+            updateTitle();
+        } else {
+            super.onBackPressed();
+        }
     }
 }

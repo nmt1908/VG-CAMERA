@@ -1,3 +1,4 @@
+/*
 package com.example.vgcamera;
 
 import android.content.Context;
@@ -124,3 +125,4 @@ public class FaceAnalyzer implements ImageAnalysis.Analyzer {
                 .addOnCompleteListener(task -> imageProxy.close());
     }
 }
+*/

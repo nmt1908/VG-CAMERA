@@ -1,3 +1,4 @@
+/*
 package com.example.vgcamera;
 
 import java.io.Serializable;
@@ -38,7 +39,7 @@ public class User implements Serializable {
     }
 
     public void setDepartment(String similarity) {
-        this.similarity = similarity;
+        this.similarity = similarity
     }
 
     @Override
@@ -50,3 +51,4 @@ public class User implements Serializable {
                 '}';
     }
 }
+*/

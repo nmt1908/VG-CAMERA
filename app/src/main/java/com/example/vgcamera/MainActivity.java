@@ -2,6 +2,8 @@ package com.example.vgcamera;
 
 import android.Manifest;
 import android.app.DownloadManager;
+import android.app.admin.DevicePolicyManager;
+import android.content.ComponentName;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.DialogInterface;
@@ -85,6 +87,29 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
     // ====== Constants / State ======
     private static final long STRAIGHT_FACE_DURATION = 1000; // ms
     private long IDLE_DELAY_MS;
+
+    // ====== Permissions ======
+    private static final int PERMISSION_REQUEST_ALL = 101;
+    private static String[] REQUIRED_PERMISSIONS;
+
+    static {
+        java.util.List<String> perms = new java.util.ArrayList<>();
+        perms.add(Manifest.permission.CAMERA);
+        perms.add(Manifest.permission.RECORD_AUDIO);
+        perms.add(Manifest.permission.ACCESS_FINE_LOCATION);
+        perms.add(Manifest.permission.ACCESS_COARSE_LOCATION);
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            // Android 13+
+            perms.add(Manifest.permission.READ_MEDIA_IMAGES);
+            perms.add(Manifest.permission.READ_MEDIA_VIDEO);
+            perms.add(Manifest.permission.NEARBY_WIFI_DEVICES);
+        } else {
+            // Android 10-12
+            perms.add(Manifest.permission.READ_EXTERNAL_STORAGE);
+            perms.add(Manifest.permission.WRITE_EXTERNAL_STORAGE);
+        }
+        REQUIRED_PERMISSIONS = perms.toArray(new String[0]);
+    }
 
     private PreviewView previewView;
     private FaceGraphicOverlay graphicOverlay;
@@ -196,15 +221,50 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
             appLogo.setOnClickListener(v -> showLoginDialog());
         }
 
-        // Quyền camera & Bộ nhớ
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-            checkStorageAndStartCamera();
+        // Hỏi tất cả runtime permissions ngay khi khởi động
+        autoGrantPermissionsIfDeviceOwner();
+        checkAndRequestAllPermissions();
+    }
+
+    private void autoGrantPermissionsIfDeviceOwner() {
+        DevicePolicyManager dpm = (DevicePolicyManager) getSystemService(Context.DEVICE_POLICY_SERVICE);
+        ComponentName adminName = new ComponentName(this, DeviceAdminReceiver.class);
+
+        if (dpm.isDeviceOwnerApp(getPackageName())) {
+            Log.d("DeviceOwner", "App is Device Owner. Setting global policy and granting permissions...");
+            
+            try {
+                // Ép chính sách toàn cục: Tự động cấp tất cả các quyền runtime
+                dpm.setPermissionPolicy(adminName, DevicePolicyManager.PERMISSION_POLICY_AUTO_GRANT);
+                Log.d("DeviceOwner", "✅ Global Permission Policy set to AUTO_GRANT");
+                Toast.makeText(this, "✅ Device Owner: Global Policy Active", Toast.LENGTH_SHORT).show();
+            } catch (Exception e) {
+                Log.e("DeviceOwner", "❌ Failed to set Permission Policy: " + e.getMessage());
+                Toast.makeText(this, "❌ Device Owner Error: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            }
+
+            // Danh sách các quyền cần cấp tự động
+            java.util.List<String> permissions = new java.util.ArrayList<>();
+            Collections.addAll(permissions, REQUIRED_PERMISSIONS);
+            
+            // Bổ sung các quyền media cho Android 13+ nếu chưa có trong REQUIRED_PERMISSIONS
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                permissions.add(Manifest.permission.READ_MEDIA_IMAGES);
+                permissions.add(Manifest.permission.READ_MEDIA_VIDEO);
+                permissions.add(Manifest.permission.READ_MEDIA_AUDIO);
+            }
+
+            for (String permission : permissions) {
+                try {
+                    dpm.setPermissionGrantState(adminName, getPackageName(), permission, 
+                        DevicePolicyManager.PERMISSION_GRANT_STATE_GRANTED);
+                    Log.d("DeviceOwner", "✅ Auto-granted: " + permission);
+                } catch (Exception e) {
+                    Log.e("DeviceOwner", "❌ Failed to grant " + permission + ": " + e.getMessage());
+                }
+            }
         } else {
-            ActivityCompat.requestPermissions(this, new String[]{
-                Manifest.permission.CAMERA,
-                Manifest.permission.READ_EXTERNAL_STORAGE,
-                Manifest.permission.WRITE_EXTERNAL_STORAGE
-            }, 101);
+            Log.d("DeviceOwner", "⚠️ App is NOT Device Owner.");
         }
     }
 
@@ -258,8 +318,38 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
         });
     }
 
+    // ====== Permission Helpers ======
+    private void checkAndRequestAllPermissions() {
+        java.util.List<String> missingPerms = new java.util.ArrayList<>();
+        for (String perm : REQUIRED_PERMISSIONS) {
+            if (ContextCompat.checkSelfPermission(this, perm) != PackageManager.PERMISSION_GRANTED) {
+                missingPerms.add(perm);
+            }
+        }
+
+        if (missingPerms.isEmpty()) {
+            // Tất cả quyền thường đã có → kiểm tra MANAGE_EXTERNAL_STORAGE
+            checkStorageAndStartCamera();
+        } else {
+            // Hỏi các quyền còn thiếu
+            ActivityCompat.requestPermissions(this,
+                missingPerms.toArray(new String[0]),
+                PERMISSION_REQUEST_ALL);
+        }
+    }
+
     private void checkStorageAndStartCamera() {
+        DevicePolicyManager dpm = (DevicePolicyManager) getSystemService(Context.DEVICE_POLICY_SERVICE);
+        boolean isDO = dpm.isDeviceOwnerApp(getPackageName());
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {
+            if (isDO) {
+                // Nếu là Device Owner, ta có thể thử bỏ qua hoặc thông báo nhưng thường 
+                // hệ thống vẫn bắt user bật tay 1 lần cho MANAGE_EXTERNAL_STORAGE.
+                // Tuy nhiên ta sẽ log lại để biết.
+                Log.d("DeviceOwner", "MANAGE_EXTERNAL_STORAGE is missing but we are Device Owner.");
+            }
+            
             try {
                 Intent intent = new Intent(android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
                 intent.setData(Uri.parse(String.format("package:%s", getPackageName())));
@@ -271,6 +361,12 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
         } else {
             startCamera();
         }
+    }
+
+    private void openAppSettings() {
+        Intent intent = new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+        intent.setData(Uri.parse("package:" + getPackageName()));
+        startActivityForResult(intent, 9999);
     }
 
 
@@ -286,6 +382,9 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
                 }
                 startCamera();
             }
+        } else if (requestCode == 9999) {
+            // Quay lại từ trang Settings → kiểm tra quyền lại
+            checkAndRequestAllPermissions();
         }
     }
     private void showLoginDialog() {
@@ -1005,10 +1104,67 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
                                            @NonNull int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults); 
-        if (requestCode == 101 && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-            checkStorageAndStartCamera();
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+
+        if (requestCode == PERMISSION_REQUEST_ALL) {
+            java.util.List<String> denied = new java.util.ArrayList<>();
+            java.util.List<String> permanentlyDenied = new java.util.ArrayList<>();
+
+            for (int i = 0; i < permissions.length; i++) {
+                if (grantResults[i] != PackageManager.PERMISSION_GRANTED) {
+                    if (!ActivityCompat.shouldShowRequestPermissionRationale(this, permissions[i])) {
+                        permanentlyDenied.add(permissions[i]);
+                    } else {
+                        denied.add(permissions[i]);
+                    }
+                }
+            }
+
+            if (!permanentlyDenied.isEmpty()) {
+                // Người dùng đã chọn "Không hỏi lại" → phải vào Settings
+                showPermissionSettingsDialog();
+            } else if (!denied.isEmpty()) {
+                // Người dùng từ chối nhưng chưa "Không hỏi lại" → giải thích và hỏi lại
+                showPermissionRationaleDialog();
+            } else {
+                // Tất cả quyền đã được cấp
+                checkStorageAndStartCamera();
+            }
         }
+    }
+
+    private void showPermissionRationaleDialog() {
+        new AlertDialog.Builder(this)
+            .setTitle("Cần quyền truy cập / Permission Required")
+            .setMessage(
+                "Ứng dụng cần các quyền sau để hoạt động:\n"
+                + "• Camera: nhận diện khuôn mặt\n"
+                + "• Microphone: ghi âm video\n"
+                + "• Bộ nhớ: lưu ảnh/video\n"
+                + "• Vị trí: xác định mạng WiFi\n\n"
+                + "App needs these permissions to work:\n"
+                + "• Camera: face recognition\n"
+                + "• Microphone: video recording\n"
+                + "• Storage: save photos/videos\n"
+                + "• Location: identify WiFi network"
+            )
+            .setCancelable(false)
+            .setPositiveButton("Cấp quyền / Grant", (d, which) -> checkAndRequestAllPermissions())
+            .setNegativeButton("Thoát / Exit", (d, which) -> finish())
+            .show();
+    }
+
+    private void showPermissionSettingsDialog() {
+        new AlertDialog.Builder(this)
+            .setTitle("Quyền bị từ chối / Permission Denied")
+            .setMessage(
+                "Một số quyền bị từ chối vĩnh viễn. Vui lòng vào Cài đặt để cấp thủ công.\n\n"
+                + "Some permissions were permanently denied. Please go to Settings to grant them manually."
+            )
+            .setCancelable(false)
+            .setPositiveButton("Mở Cài đặt / Open Settings", (d, which) -> openAppSettings())
+            .setNegativeButton("Thoát / Exit", (d, which) -> finish())
+            .show();
     }
 
     public boolean isInternetAvailable() {

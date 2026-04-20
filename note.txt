@@ -1,38 +1,26 @@
-# ==========================================
-# SUPER SCRIPT: SETUP MÁY CHUYÊN DỤNG VG-CAMERA
-# Copy nguyên khối script này ném vào Terminal
-# ==========================================
+# ============================================================
+# SUPER SCRIPT: SETUP MÁY CHUYÊN DỤNG VG-CAMERA (DEVICE OWNER)
+# Cách này giúp app có toàn quyền vĩnh viễn, không bị hệ thống thu hồi.
+# ============================================================
 
-# ----- 1. CẤP QUYỀN CAMERA -----
-adb shell pm grant com.example.vgcamera android.permission.CAMERA
-adb shell appops set com.example.vgcamera CAMERA allow
+# ----- 1. GỠ CÀI ĐẶT BẢN CŨ (ĐỂ TRÁNH XUNG ĐỘT) -----
+adb uninstall com.example.vgcamera
 
-# ----- 2. CẤP QUYỀN MIC (THU ÂM VIDEO) -----
-adb shell pm grant com.example.vgcamera android.permission.RECORD_AUDIO
-adb shell appops set com.example.vgcamera RECORD_AUDIO allow
+# ----- 2. CÀI ĐẶT BẢN MỚI -----
+# Lưu ý: Thay đổi đường dẫn đến file APK nếu cần
+adb install "/home/gmo044/Desktop/Android Studio Source/VG-CAMERA/app/release/app-release.apk"
 
-# ----- 3. CẤP QUYỀN BỘ NHỚ LƯU TRỮ (ANDROID 10 TRỞ XUỐNG) -----
-adb shell pm grant com.example.vgcamera android.permission.READ_EXTERNAL_STORAGE
-adb shell pm grant com.example.vgcamera android.permission.WRITE_EXTERNAL_STORAGE
-adb shell appops set com.example.vgcamera READ_EXTERNAL_STORAGE allow
-adb shell appops set com.example.vgcamera WRITE_EXTERNAL_STORAGE allow
+# ----- 3. THIẾT LẬP DEVICE OWNER (QUẢN TRỊ VIÊN TẨM CAO) -----
+# QUAN TRỌNG: Phải xoá hết tài khoản Google/Email trong Cài đặt trước khi chạy lệnh này.
+adb shell dpm set-device-owner com.example.vgcamera/.DeviceAdminReceiver
 
-# ----- 4. CẤP QUYỀN BỘ NHỚ CHI TIẾT (ANDROID 13 TRỞ LÊN) -----
-adb shell pm grant com.example.vgcamera android.permission.READ_MEDIA_IMAGES
-adb shell pm grant com.example.vgcamera android.permission.READ_MEDIA_VIDEO
-adb shell appops set com.example.vgcamera READ_MEDIA_IMAGES allow
-adb shell appops set com.example.vgcamera READ_MEDIA_VIDEO allow
-
-# ----- 5. CẤP SIÊU QUYỀN QUẢN LÝ / XÓA RÁC (ANDROID 11 TRỞ LÊN) -----
+# ----- 4. CẤP QUYỀN QUẢN LÝ TẤT CẢ TỆP (SILENT GRANT) -----
+# Quyền này giúp app dọn rác và truy cập bộ nhớ không cần hỏi user.
 adb shell appops set com.example.vgcamera MANAGE_EXTERNAL_STORAGE allow
 
-# ----- 6. CẤP QUYỀN VỊ TRÍ CHÍNH XÁC (GPS) -----
-adb shell pm grant com.example.vgcamera android.permission.ACCESS_FINE_LOCATION
-adb shell pm grant com.example.vgcamera android.permission.ACCESS_COARSE_LOCATION
-adb shell appops set com.example.vgcamera FINE_LOCATION allow
-adb shell appops set com.example.vgcamera COARSE_LOCATION allow
-
-# ----- 7. CẤP QUYỀN WIFI LÂN CẬN (ANDROID 13+) -----
-adb shell pm grant com.example.vgcamera android.permission.NEARBY_WIFI_DEVICES
-adb shell appops set com.example.vgcamera NEARBY_WIFI_DEVICES allow
-
+# ============================================================
+# GHI CHÚ:
+# - Sau khi chạy xong 4 lệnh trên, app sẽ tự động có quyền Camera, Mic, GPS... 
+#   ngay khi mở lên nhờ chính sách AUTO_GRANT đã cài trong code.
+# - Sau khi xong, anh có thể đăng nhập lại tài khoản Google bình thường.
+# ============================================================

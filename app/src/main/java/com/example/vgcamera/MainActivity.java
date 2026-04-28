@@ -129,6 +129,7 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
     private static final int STATE_PROCESSING = 2;
     private static final int STATE_COUNTDOWN = 3;
     private static final int STATE_SUCCESS = 4;
+    private static final int STATE_ERROR = 5;
     private int currentUIState = STATE_IDLE;
     
     private long countdownStartTime = 0;
@@ -236,8 +237,8 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
             try {
                 // Ép chính sách toàn cục: Tự động cấp tất cả các quyền runtime
                 dpm.setPermissionPolicy(adminName, DevicePolicyManager.PERMISSION_POLICY_AUTO_GRANT);
-                Log.d("DeviceOwner", "✅ Global Permission Policy set to AUTO_GRANT");
-                Toast.makeText(this, "✅ Device Owner: Global Policy Active", Toast.LENGTH_SHORT).show();
+                // Log.d("DeviceOwner", "✅ Global Permission Policy set to AUTO_GRANT");
+                // Toast.makeText(this, "✅ Device Owner: Global Policy Active", Toast.LENGTH_SHORT).show();
             } catch (Exception e) {
                 Log.e("DeviceOwner", "❌ Failed to set Permission Policy: " + e.getMessage());
                 Toast.makeText(this, "❌ Device Owner Error: " + e.getMessage(), Toast.LENGTH_LONG).show();
@@ -1084,15 +1085,19 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
 
     private void handleRecognitionFail() {
         runOnUiThread(() -> {
+            currentUIState = STATE_ERROR; // Chuyển sang trạng thái lỗi
             User failUser = new User("Recognition Failed", "------", "0%");
-            showModernUserInfo(failUser);
+            activeUserForCompose = failUser;
+            isUserInfoVisible = true;
+            frozenBitmap = previewView.getBitmap(); // Đóng băng ảnh lỗi để user thấy
+            updateComposeUI();
 
             new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
                 hideModernUserInfo();
                 currentUIState = STATE_IDLE;
                 isTakingPhoto = false;
                 updateComposeUI();
-            }, 2000);
+            }, 2500);
         });
     }
 

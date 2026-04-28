@@ -52,7 +52,7 @@ object ComposeBridge {
                         imageHeight = imageHeight,
                         rotation = rotation
                     )
-                    ModernUserInfoPanel(user = user, isVisible = isPanelVisible)
+                    ModernUserInfoPanel(user = user, isVisible = isPanelVisible, uiState = uiState)
 
                     // Unified Modern Exit Dialog
                     ModernConfirmDialog(

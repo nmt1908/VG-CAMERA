@@ -76,7 +76,11 @@ fun ScanningOverlay(
         label = "FreezeScale"
     )
     val targetColor by animateColorAsState(
-        targetValue = if (uiState == 2 || uiState == 3 || uiState == 4) VGCyan else Color.White.copy(alpha = 0.3f),
+        targetValue = when (uiState) {
+            2, 3, 4 -> VGCyan
+            5 -> Color(0xFFFF1744) // Màu đỏ lỗi
+            else -> Color.White.copy(alpha = 0.3f)
+        },
         animationSpec = tween(400),
         label = "TargetColor"
     )

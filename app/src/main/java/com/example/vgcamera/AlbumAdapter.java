@@ -40,7 +40,6 @@ public class AlbumAdapter extends RecyclerView.Adapter<AlbumAdapter.ViewHolder> 
     private final Context context;
     private final String language;
 
-
     public AlbumAdapter(List<MediaItem> mediaItems, Runnable updateTitleCallback, Context context) {
         this.mediaItems = mediaItems;
         this.updateTitleCallback = updateTitleCallback;
@@ -67,8 +66,8 @@ public class AlbumAdapter extends RecyclerView.Adapter<AlbumAdapter.ViewHolder> 
                 .into(holder.thumbnail);
 
         holder.selectIcon.setVisibility(item.isSelected ? View.VISIBLE : View.INVISIBLE);
-        holder.selectIcon.setImageResource(item.isSelected ?
-                R.drawable.ic_selected_circle : R.drawable.ic_unselected_circle);
+        holder.selectIcon
+                .setImageResource(item.isSelected ? R.drawable.ic_selected_circle : R.drawable.ic_unselected_circle);
         if (item.isVideo) {
             holder.videoDuration.setVisibility(View.VISIBLE);
             holder.videoDuration.setText(formatDuration(item.duration));
@@ -83,7 +82,6 @@ public class AlbumAdapter extends RecyclerView.Adapter<AlbumAdapter.ViewHolder> 
             updateTitleCallback.run();
             return true;
         });
-
 
         holder.itemView.setOnClickListener(v -> {
             if (selectionMode) {
@@ -105,61 +103,97 @@ public class AlbumAdapter extends RecyclerView.Adapter<AlbumAdapter.ViewHolder> 
         });
 
     }
+
     private String getLocalizedString(String key) {
         switch (language) {
             case "vi":
                 switch (key) {
-                    case "delete_confirm_title": return "Xác nhận xóa";
-                    case "delete_confirm_message": return "Bạn có chắc muốn xóa?<br>Ảnh/video đã chọn sẽ <font color='#FF3B30'><b>bị mất vĩnh viễn</b></font>.";
-                    case "delete": return "Xóa";
-                    case "cancel": return "Hủy";
-                    case "deleted": return "Đã xóa mục đã chọn";
-                    case "upload_done": return "Tải lên hoàn tất";
-                    case "delete_success_title": return "Xóa Thành Công!";
-                    case "delete_success_message": return "Tất cả hình ảnh/video đã được xóa.";
-                    case "delete_failed_title": return "Xóa Thất Bại!";
-                    case "delete_failed_message": return "Không thể xóa một số mục. Vui lòng kiểm tra quyền truy cập.";
-                    case "close": return "Đóng";
-                    case "ok": return "OK";
+                    case "delete_confirm_title":
+                        return "Xác nhận xóa";
+                    case "delete_confirm_message":
+                        return "Bạn có chắc muốn xóa?<br>Ảnh/video đã chọn sẽ <font color='#FF3B30'><b>bị mất vĩnh viễn</b></font>.";
+                    case "delete":
+                        return "Xóa";
+                    case "cancel":
+                        return "Hủy";
+                    case "deleted":
+                        return "Đã xóa mục đã chọn";
+                    case "upload_done":
+                        return "Tải lên hoàn tất";
+                    case "delete_success_title":
+                        return "Xóa Thành Công!";
+                    case "delete_success_message":
+                        return "Tất cả hình ảnh/video đã được xóa.";
+                    case "delete_failed_title":
+                        return "Xóa Thất Bại!";
+                    case "delete_failed_message":
+                        return "Không thể xóa một số mục. Vui lòng kiểm tra quyền truy cập.";
+                    case "close":
+                        return "Đóng";
+                    case "ok":
+                        return "OK";
                 }
                 break;
             case "cn":
                 switch (key) {
-                    case "delete_confirm_title": return "删除确认";
-                    case "delete_confirm_message": return "您确定要删除吗？<br>所选的照片/视频将被<font color='#FF3B30'><b>永久删除</b></font>。";
-                    case "delete": return "删除";
-                    case "cancel": return "取消";
-                    case "deleted": return "已删除所选项";
-                    case "upload_done": return "上传完成";
-                    case "delete_success_title": return "删除成功！";
-                    case "delete_success_message": return "所有图片都已删除。";
-                    case "delete_failed_title": return "删除失败！";
-                    case "delete_failed_message": return "无法删除某些项。请检查访问权限。";
-                    case "close": return "关闭";
-                    case "ok": return "好";
+                    case "delete_confirm_title":
+                        return "删除确认";
+                    case "delete_confirm_message":
+                        return "您确定要删除吗？<br>所选的照片/视频将被<font color='#FF3B30'><b>永久删除</b></font>。";
+                    case "delete":
+                        return "删除";
+                    case "cancel":
+                        return "取消";
+                    case "deleted":
+                        return "已删除所选项";
+                    case "upload_done":
+                        return "上传完成";
+                    case "delete_success_title":
+                        return "删除成功！";
+                    case "delete_success_message":
+                        return "所有图片都已删除。";
+                    case "delete_failed_title":
+                        return "删除失败！";
+                    case "delete_failed_message":
+                        return "无法删除某些项。请检查访问权限。";
+                    case "close":
+                        return "关闭";
+                    case "ok":
+                        return "好";
                 }
                 break;
             case "en":
             default:
                 switch (key) {
-                    case "delete_confirm_title": return "Delete Confirmation";
-                    case "delete_confirm_message": return "Are you sure you want to delete?<br>The selected photos/videos will be <font color='#FF3B30'><b>permanently lost</b></font>.";
-                    case "delete": return "Delete";
-                    case "cancel": return "Cancel";
-                    case "deleted": return "Selected items deleted";
-                    case "upload_done": return "Upload completed";
-                    case "delete_success_title": return "Delete Successful!";
-                    case "delete_success_message": return "All selected images/videos have been deleted.";
-                    case "delete_failed_title": return "Delete Failed!";
-                    case "delete_failed_message": return "Some items could not be deleted. Please check your permissions.";
-                    case "close": return "Close";
-                    case "ok": return "OK";
+                    case "delete_confirm_title":
+                        return "Delete Confirmation";
+                    case "delete_confirm_message":
+                        return "Are you sure you want to delete?<br>The selected photos/videos will be <font color='#FF3B30'><b>permanently lost</b></font>.";
+                    case "delete":
+                        return "Delete";
+                    case "cancel":
+                        return "Cancel";
+                    case "deleted":
+                        return "Selected items deleted";
+                    case "upload_done":
+                        return "Upload completed";
+                    case "delete_success_title":
+                        return "Delete Successful!";
+                    case "delete_success_message":
+                        return "All selected images/videos have been deleted.";
+                    case "delete_failed_title":
+                        return "Delete Failed!";
+                    case "delete_failed_message":
+                        return "Some items could not be deleted. Please check your permissions.";
+                    case "close":
+                        return "Close";
+                    case "ok":
+                        return "OK";
                 }
                 break;
         }
         return key; // fallback
     }
-
 
     @Override
     public int getItemCount() {
@@ -174,6 +208,29 @@ public class AlbumAdapter extends RecyclerView.Adapter<AlbumAdapter.ViewHolder> 
         notifyDataSetChanged();
         updateTitleCallback.run();
     }
+
+    public void toggleSelection(int position) {
+        if (position >= 0 && position < mediaItems.size()) {
+            MediaItem item = mediaItems.get(position);
+            item.isSelected = !item.isSelected;
+            selectionMode = getSelectedCount() > 0;
+            notifyItemChanged(position);
+            updateTitleCallback.run();
+        }
+    }
+
+    public void setSelected(int position, boolean selected) {
+        if (position >= 0 && position < mediaItems.size()) {
+            MediaItem item = mediaItems.get(position);
+            if (item.isSelected != selected) {
+                item.isSelected = selected;
+                selectionMode = getSelectedCount() > 0;
+                notifyItemChanged(position);
+                updateTitleCallback.run();
+            }
+        }
+    }
+
     private String formatDuration(long durationMs) {
         int seconds = (int) (durationMs / 1000);
         int minutes = seconds / 60;
@@ -191,7 +248,8 @@ public class AlbumAdapter extends RecyclerView.Adapter<AlbumAdapter.ViewHolder> 
         Button btnDeleteAll = dialogView.findViewById(R.id.btnDeleteAll);
 
         txtTitle.setText(getLocalizedString("delete_confirm_title"));
-        txtMessage.setText(android.text.Html.fromHtml(getLocalizedString("delete_confirm_message"), android.text.Html.FROM_HTML_MODE_LEGACY));
+        txtMessage.setText(android.text.Html.fromHtml(getLocalizedString("delete_confirm_message"),
+                android.text.Html.FROM_HTML_MODE_LEGACY));
         btnKeep.setText(getLocalizedString("cancel"));
         btnDeleteAll.setText(getLocalizedString("delete"));
 
@@ -201,7 +259,8 @@ public class AlbumAdapter extends RecyclerView.Adapter<AlbumAdapter.ViewHolder> 
                 .create();
 
         if (dialog.getWindow() != null) {
-            dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
+            dialog.getWindow().setBackgroundDrawable(
+                    new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
         }
 
         btnKeep.setOnClickListener(v -> dialog.dismiss());
@@ -223,13 +282,14 @@ public class AlbumAdapter extends RecyclerView.Adapter<AlbumAdapter.ViewHolder> 
                                 deletedFile = file.delete();
                             }
                         }
-                        
+
                         // Fallback in case raw delete doesn't work or path is null
                         int deleted = 0;
                         if (deletedFile) {
                             deleted = 1;
                             // Notify MediaStore to remove the dangling pointer silently
-                            android.media.MediaScannerConnection.scanFile(context, new String[]{filePath}, null, null);
+                            android.media.MediaScannerConnection.scanFile(context, new String[] { filePath }, null,
+                                    null);
                         } else {
                             // Only call ContentResolver (which prompts) if raw deletion failed
                             deleted = context.getContentResolver().delete(uri, null, null);
@@ -249,8 +309,7 @@ public class AlbumAdapter extends RecyclerView.Adapter<AlbumAdapter.ViewHolder> 
                                 activity.startIntentSenderForResult(
                                         intentSender,
                                         REQUEST_DELETE_PERMISSION,
-                                        null, 0, 0, 0
-                                );
+                                        null, 0, 0, 0);
                                 dialog.dismiss();
                                 return;
                             } catch (IntentSender.SendIntentException sendEx) {
@@ -280,8 +339,7 @@ public class AlbumAdapter extends RecyclerView.Adapter<AlbumAdapter.ViewHolder> 
                         () -> {
                             deselectAll();
                             notifyDataSetChanged();
-                        }
-                );
+                        });
             } else {
                 showCustomDialog(
                         R.drawable.ic_x_circle,
@@ -289,8 +347,7 @@ public class AlbumAdapter extends RecyclerView.Adapter<AlbumAdapter.ViewHolder> 
                         getLocalizedString("delete_failed_title"),
                         getLocalizedString("delete_failed_message"),
                         getLocalizedString("close"),
-                        null
-                );
+                        null);
             }
             dialog.dismiss();
         });
@@ -298,10 +355,9 @@ public class AlbumAdapter extends RecyclerView.Adapter<AlbumAdapter.ViewHolder> 
         dialog.show();
     }
 
-
     public void showCustomDialog(int iconResId, int iconTintColorResId,
-                                 String title, String message,
-                                 String buttonText, Runnable onClose) {
+            String title, String message,
+            String buttonText, Runnable onClose) {
 
         AlertDialog.Builder builder = new AlertDialog.Builder(context);
         LayoutInflater inflater = LayoutInflater.from(context);
@@ -314,12 +370,12 @@ public class AlbumAdapter extends RecyclerView.Adapter<AlbumAdapter.ViewHolder> 
         Button btn = dialogView.findViewById(R.id.dialogButton);
 
         icon.setImageResource(iconResId);
-        
+
         int colorToApply = ContextCompat.getColor(context, iconTintColorResId);
         if (iconTintColorResId == R.color.bluesuccess) {
             colorToApply = android.graphics.Color.parseColor("#4CAF50"); // Xanh lá
         }
-        
+
         icon.setColorFilter(colorToApply);
         titleView.setText(title);
         titleView.setTextColor(colorToApply);
@@ -333,16 +389,12 @@ public class AlbumAdapter extends RecyclerView.Adapter<AlbumAdapter.ViewHolder> 
 
         btn.setOnClickListener(v -> {
             dialog.dismiss();
-            if (onClose != null) onClose.run();
+            if (onClose != null)
+                onClose.run();
         });
 
         dialog.show();
     }
-
-
-
-
-
 
     public void deselectAll() {
         for (MediaItem item : mediaItems) {
@@ -353,16 +405,15 @@ public class AlbumAdapter extends RecyclerView.Adapter<AlbumAdapter.ViewHolder> 
         updateTitleCallback.run();
     }
 
-
     public boolean isSelectionMode() {
         return selectionMode;
     }
 
-
     public int getSelectedCount() {
         int count = 0;
         for (MediaItem item : mediaItems) {
-            if (item.isSelected) count++;
+            if (item.isSelected)
+                count++;
         }
         return count;
     }

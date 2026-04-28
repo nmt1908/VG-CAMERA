@@ -23,7 +23,8 @@ import com.example.vgcamera.ui.theme.VGSecondary
 @Composable
 fun ModernUserInfoPanel(
     user: User?,
-    isVisible: Boolean
+    isVisible: Boolean,
+    uiState: Int = 4
 ) {
     AnimatedVisibility(
         visible = isVisible,
@@ -50,6 +51,7 @@ fun ModernUserInfoPanel(
                     )
                     .padding(24.dp)
             ) {
+                val isError = uiState == 5
                 // Header Status
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -58,12 +60,12 @@ fun ModernUserInfoPanel(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(50.dp))
-                            .background(Color(0xFFE8F5E9))
+                            .background(if (isError) Color(0xFFFFEBEE) else Color(0xFFE8F5E9))
                             .padding(horizontal = 16.dp, vertical = 6.dp)
                     ) {
                         Text(
-                            text = "LOGIN SUCCESSFUL",
-                            color = Color(0xFF2E7D32),
+                            text = if (isError) "RECOGNITION FAILED" else "LOGIN SUCCESSFUL",
+                            color = if (isError) Color(0xFFD32F2F) else Color(0xFF2E7D32),
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 1.sp
@@ -116,7 +118,7 @@ fun ModernUserInfoPanel(
                             text = user?.similarity ?: "0%",
                             fontSize = 24.sp,
                             fontWeight = FontWeight.Black,
-                            color = VGPrimary
+                            color = if (isError) Color(0xFFD32F2F) else VGPrimary
                         )
                     }
                 }

@@ -132,6 +132,9 @@ public class CameraActivity extends AppCompatActivity {
     private String messageDialogTitle = "";
     private String messageDialogBody = "";
     private Runnable messageDialogAction = null;
+    private boolean isCapturing = false;
+    private long lastClickTime = 0;
+
     private String authRequiredTitle, authRequiredMessage;
     private String dialogConfirmTrans = "Đóng";
 
@@ -550,8 +553,9 @@ public class CameraActivity extends AppCompatActivity {
 
 
     private void takePhoto() {
-        if (imageCapture == null) return;
+        if (imageCapture == null || isCapturing) return;
 
+        isCapturing = true;
         // Log rotation kiểu ngang/dọc
         switch (currentRotation) {
             case Surface.ROTATION_0:
@@ -592,6 +596,9 @@ public class CameraActivity extends AppCompatActivity {
                 new ImageCapture.OnImageSavedCallback() {
                     @Override
                     public void onImageSaved(@NonNull ImageCapture.OutputFileResults outputFileResults) {
+                        isCapturing = false;
+                        if (isFinishing() || isDestroyed()) return;
+
                         Uri savedUri = outputFileResults.getSavedUri();
                         if (savedUri != null) {
                             File file = uriToFile(savedUri);
@@ -627,11 +634,14 @@ public class CameraActivity extends AppCompatActivity {
 
                     @Override
                     public void onError(@NonNull ImageCaptureException exception) {
+                        isCapturing = false;
+                        if (isFinishing() || isDestroyed()) return;
                         Log.e("PHOTO", "Photo capture failed: " + exception.getMessage(), exception);
                         Toast.makeText(getApplicationContext(), "Capture failed", Toast.LENGTH_SHORT).show();
                     }
                 });
     }
+
 
 
 
@@ -717,8 +727,15 @@ public class CameraActivity extends AppCompatActivity {
     }
 
     private void captureVideo() {
-
         if (videoCapture == null) return;
+
+        // Chống spam nút quay video (debounce 500ms)
+        long currentTime = System.currentTimeMillis();
+        if (currentTime - lastClickTime < 500) {
+            return;
+        }
+        lastClickTime = currentTime;
+
 
         if (activeRecording != null) {
             // Đang quay -> dừng quay

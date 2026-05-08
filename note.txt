@@ -1,26 +1,39 @@
-# ============================================================
-# SUPER SCRIPT: SETUP MÁY CHUYÊN DỤNG VG-CAMERA (DEVICE OWNER)
-# Cách này giúp app có toàn quyền vĩnh viễn, không bị hệ thống thu hồi.
-# ============================================================
+adb reboot recovery
+
+
 
 # ----- 1. GỠ CÀI ĐẶT BẢN CŨ (ĐỂ TRÁNH XUNG ĐỘT) -----
 adb uninstall com.example.vgcamera
 
 # ----- 2. CÀI ĐẶT BẢN MỚI -----
-# Lưu ý: Thay đổi đường dẫn đến file APK nếu cần
-adb install "/home/gmo044/Desktop/Android Studio Source/VG-CAMERA/app/release/app-release.apk"
+adb install "/home/gmo044/Desktop/Source/Android Studio Source/VG-CAMERA/app/release/app-release.apk"
 
 # ----- 3. THIẾT LẬP DEVICE OWNER (QUẢN TRỊ VIÊN TẨM CAO) -----
-# QUAN TRỌNG: Phải xoá hết tài khoản Google/Email trong Cài đặt trước khi chạy lệnh này.
 adb shell dpm set-device-owner com.example.vgcamera/.DeviceAdminReceiver
 
-# ----- 4. CẤP QUYỀN QUẢN LÝ TẤT CẢ TỆP (SILENT GRANT) -----
-# Quyền này giúp app dọn rác và truy cập bộ nhớ không cần hỏi user.
+# ----- 4. CẤP QUYỀN HỆ THỐNG (SILENT GRANT) -----
 adb shell appops set com.example.vgcamera MANAGE_EXTERNAL_STORAGE allow
+adb shell pm grant com.example.vgcamera android.permission.ACCESS_FINE_LOCATION
+adb shell pm grant com.example.vgcamera android.permission.ACCESS_COARSE_LOCATION
 
-# ============================================================
-# GHI CHÚ:
-# - Sau khi chạy xong 4 lệnh trên, app sẽ tự động có quyền Camera, Mic, GPS... 
-#   ngay khi mở lên nhờ chính sách AUTO_GRANT đã cài trong code.
-# - Sau khi xong, anh có thể đăng nhập lại tài khoản Google bình thường.
-# ============================================================
+# ----- 5. DỌN DẸP MÀN HÌNH (AN TOÀN - KHÔNG LÀM HỎNG WIFI/GPS) -----
+# Mở lại tất cả trước khi dọn dẹp mới (để đảm bảo không sót lỗi)
+for pkg in $(adb shell pm list packages | cut -d ':' -f 2 | tr -d '\r'); do adb shell pm unsuspend --user 0 $pkg; done
+
+# Ẩn app rác nhưng GIỮ LẠI các dịch vụ hệ thống quan trọng
+for pkg in $(adb shell pm list packages | cut -d ':' -f 2 | tr -d '\r'); do
+  if [ "$pkg" != "com.android.settings" ] && \
+     [ "$pkg" != "com.android.chrome" ] && \
+     [ "$pkg" != "com.example.vgcamera" ] && \
+     [ "$pkg" != "com.sec.android.app.launcher" ] && \
+     [ "$pkg" != "com.android.systemui" ] && \
+     [ "$pkg" != "com.google.android.gms" ] && \
+     [ "$pkg" != "com.google.android.gsf" ] && \
+     [ "$pkg" != "com.google.android.permissioncontroller" ] && \
+     [ "$pkg" != "com.android.permissioncontroller" ] && \
+     [ "$pkg" != "com.samsung.android.location" ] && \
+     [ "$pkg" != "com.samsung.android.app.dressroom" ] && \
+     [ "$pkg" != "com.samsung.android.wallpaper.res" ]; then
+    adb shell pm suspend --user 0 $pkg
+  fi
+done

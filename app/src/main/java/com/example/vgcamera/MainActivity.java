@@ -237,11 +237,8 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
             try {
                 // Ép chính sách toàn cục: Tự động cấp tất cả các quyền runtime
                 dpm.setPermissionPolicy(adminName, DevicePolicyManager.PERMISSION_POLICY_AUTO_GRANT);
-                // Log.d("DeviceOwner", "✅ Global Permission Policy set to AUTO_GRANT");
-                // Toast.makeText(this, "✅ Device Owner: Global Policy Active", Toast.LENGTH_SHORT).show();
             } catch (Exception e) {
                 Log.e("DeviceOwner", "❌ Failed to set Permission Policy: " + e.getMessage());
-                Toast.makeText(this, "❌ Device Owner Error: " + e.getMessage(), Toast.LENGTH_LONG).show();
             }
 
             // Danh sách các quyền cần cấp tự động
@@ -263,6 +260,22 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
                 } catch (Exception e) {
                     Log.e("DeviceOwner", "❌ Failed to grant " + permission + ": " + e.getMessage());
                 }
+            }
+
+            // ÉP BẬT GPS VÀ KHÓA NÚT GẠT
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    // Android 9.0+ : Ép bật GPS
+                    dpm.setLocationEnabled(adminName, true);
+                    Log.d("DeviceOwner", "✅ Location Services forced ON");
+                }
+                
+                // Khóa không cho user vào tắt GPS trong Cài đặt
+                dpm.addUserRestriction(adminName, android.os.UserManager.DISALLOW_CONFIG_LOCATION);
+                Log.d("DeviceOwner", "✅ Location Configuration DISABLED for user");
+                
+            } catch (Exception e) {
+                Log.e("DeviceOwner", "❌ Failed to force location: " + e.getMessage());
             }
         } else {
             Log.d("DeviceOwner", "⚠️ App is NOT Device Owner.");
@@ -831,6 +844,9 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
 
         new Thread(() -> {
             Response response = null;
+            String responseBody = "";
+            boolean isFallback = false;
+
             try {
                 byte[] fileBytes;
                 try (FileInputStream fis = new FileInputStream(file)) {
@@ -843,28 +859,53 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
 
                 String currentTime = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(new Date());
 
-                RequestBody body = new MultipartBody.Builder()
+                // 1. API chính (Port 5001)
+                RequestBody bodyPrimary = new MultipartBody.Builder()
                         .setType(MultipartBody.FORM)
                         .addFormDataPart("image_file", file.getName(),
                                 RequestBody.create(fileBytes, MediaType.parse("image/jpeg")))
                         .build();
 
-                Request req = new Request.Builder()
+                Request reqPrimary = new Request.Builder()
                         .url("http://10.13.34.166:5001/recognize-anti-spoofing")
                         .addHeader("X-API-Key", "vg_login_app")
                         .addHeader("X-Time", currentTime)
-                        .post(body)
+                        .post(bodyPrimary)
                         .build();
 
                 OkHttpClient clientWithTimeout = httpClient.newBuilder()
                         .callTimeout(10, TimeUnit.SECONDS)
                         .build();
 
-                response = clientWithTimeout.newCall(req).execute();
+                try {
+                    Log.d("TIMECALL", "🌐 Calling primary API (port 5001): http://10.13.34.166:5001/recognize-anti-spoofing");
+                    response = clientWithTimeout.newCall(reqPrimary).execute();
+                    responseBody = response.body() != null ? response.body().string() : "";
+                    Log.d("TIMECALL", "✅ Primary API response: " + responseBody);
+                } catch (Exception ex) {
+                    Log.e("TIMECALL", "❌ Primary API failed: " + ex.getMessage());
+                    Log.d("TIMECALL", "🌐 Falling back to secondary API (port 8001): http://10.1.16.23:8001/api/x/fr/env/face_search");
+                    isFallback = true;
+
+                    RequestBody bodyFallback = new MultipartBody.Builder()
+                            .setType(MultipartBody.FORM)
+                            .addFormDataPart("env_token", "8d59d8d588f84fc0a24291b8c36b6206")
+                            .addFormDataPart("image_file", file.getName(),
+                                    RequestBody.create(fileBytes, MediaType.parse("image/jpeg")))
+                            .build();
+
+                    Request reqFallback = new Request.Builder()
+                            .url("http://10.1.16.23:8001/api/x/fr/env/face_search")
+                            .post(bodyFallback)
+                            .build();
+
+                    response = clientWithTimeout.newCall(reqFallback).execute();
+                    responseBody = response.body() != null ? response.body().string() : "";
+                    Log.d("TIMECALL", "✅ Fallback API response: " + responseBody);
+                }
                 
-                if (response.isSuccessful()) {
-                    String resBody = response.body().string();
-                    JSONObject json = new JSONObject(resBody);
+                if (response != null && response.isSuccessful()) {
+                    JSONObject json = new JSONObject(responseBody);
                     if (json.optBoolean("is_fake", false)) {
                         handleRecognitionFail();
                         return;

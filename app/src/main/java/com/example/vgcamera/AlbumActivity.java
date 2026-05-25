@@ -733,6 +733,7 @@ public class AlbumActivity extends AppCompatActivity {
                         ByteArrayOutputStream stream = new ByteArrayOutputStream();
                         bitmap.compress(Bitmap.CompressFormat.JPEG, 90, stream);
                         String base64Image = Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP);
+                        bitmap.recycle();
 
                         JSONObject photoItem = new JSONObject();
                         photoItem.put("photo", "data:image/jpeg;base64," + base64Image);

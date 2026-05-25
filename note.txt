@@ -6,7 +6,7 @@ adb reboot recovery
 adb uninstall com.example.vgcamera
 
 # ----- 2. CÀI ĐẶT BẢN MỚI -----
-adb install "/home/gmo044/Desktop/Source/Android Studio Source/VG-CAMERA/app/release/app-release.apk"
+adb install "/media/minhtam/DATA1TB/2026/Source/AndroidStudioSource/VG-CAMERA/app/release/app-release.apk"
 
 # ----- 3. THIẾT LẬP DEVICE OWNER (QUẢN TRỊ VIÊN TẨM CAO) -----
 adb shell dpm set-device-owner com.example.vgcamera/.DeviceAdminReceiver

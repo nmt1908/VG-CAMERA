@@ -103,113 +103,111 @@ public class MediaUploader {
 
         Log.d(TAG, "Ảnh: " + images.size() + ", Video: " + videos.size());
 
-        uploadImagesInBatches(images, 0, () -> uploadVideosOneByOne(videos, 0));
+        uploadImagesInParallel(images, () -> uploadVideosOneByOne(videos, 0));
     }
 
-    private void uploadImagesInBatches(List<MediaItem> images, int index, Runnable onComplete) {
-        if (index >= images.size()) {
+    private void uploadImagesInParallel(List<MediaItem> images, Runnable onComplete) {
+        if (images.isEmpty()) {
             onComplete.run();
             return;
         }
 
-        int end = Math.min(index + 20, images.size());
-        List<MediaItem> batch = new ArrayList<>(images.subList(index, end));
+        java.util.concurrent.ExecutorService executor = java.util.concurrent.Executors.newFixedThreadPool(3);
+        java.util.concurrent.atomic.AtomicInteger remainingTasks = new java.util.concurrent.atomic.AtomicInteger(images.size());
+        java.util.concurrent.atomic.AtomicBoolean hasError = new java.util.concurrent.atomic.AtomicBoolean(false);
 
-        Log.d(TAG, "Upload ảnh batch từ index " + index + " đến " + (end - 1) + ", batch size = " + batch.size());
+        for (int i = 0; i < images.size(); i++) {
+            final int globalIndex = i;
+            final MediaItem item = images.get(i);
 
-        new Thread(() -> {
-            boolean success = uploadImageBatch(batch, index);
-
-            new Handler(Looper.getMainLooper()).post(() -> {
-                if (success) {
-                    uploadedCount += batch.size();
-                    updateProgress();
-                    uploadImagesInBatches(images, end, onComplete);
+            executor.submit(() -> {
+                boolean success = uploadSingleImageMultipart(item, globalIndex);
+                if (!success) {
+                    hasError.set(true);
                 } else {
-                    progressDialog.dismiss();
-                    Toast.makeText(activity, "Image upload failed", Toast.LENGTH_SHORT).show();
+                    synchronized (MediaUploader.this) {
+                        uploadedCount++;
+                        updateProgress();
+                    }
+                }
+
+                if (remainingTasks.decrementAndGet() == 0) {
+                    executor.shutdown();
+                    new Handler(Looper.getMainLooper()).post(() -> {
+                        if (hasError.get()) {
+                            progressDialog.dismiss();
+                            Toast.makeText(activity, "Một số ảnh tải lên thất bại", Toast.LENGTH_SHORT).show();
+                        } else {
+                            onComplete.run();
+                        }
+                    });
                 }
             });
-        }).start();
+        }
     }
 
-    private boolean uploadImageBatch(List<MediaItem> imageBatch, int startIndex) {
+    private boolean uploadSingleImageMultipart(MediaItem item, int globalIndex) {
         try {
-            JSONArray dataArray = new JSONArray();
-            MultipartBody.Builder builder = new MultipartBody.Builder().setType(MultipartBody.FORM);
+            Uri uri = Uri.parse(item.uri);
+            Log.d(TAG, "Bắt đầu tải song song ảnh: " + item.uri + ", index = " + globalIndex);
 
-            for (int i = 0; i < imageBatch.size(); i++) {
-                MediaItem item = imageBatch.get(i);
-                Uri uri = Uri.parse(item.uri);
-                Log.d(TAG, "Ảnh uri: " + item.uri);
-
-                int orientation = android.media.ExifInterface.ORIENTATION_NORMAL;
-                String[] proj = { MediaStore.Images.Media.DATA };
-                try (android.database.Cursor cursor = activity.getContentResolver().query(uri, proj, null, null, null)) {
-                    if (cursor != null && cursor.moveToFirst()) {
-                        int colIndex = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA);
-                        String filePath = cursor.getString(colIndex);
-                        if (filePath != null) {
-                            android.media.ExifInterface exif = new android.media.ExifInterface(filePath);
-                            orientation = exif.getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION, android.media.ExifInterface.ORIENTATION_NORMAL);
-                        }
-                    }
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-
-                java.io.InputStream input = activity.getContentResolver().openInputStream(uri);
-                Bitmap bitmap = android.graphics.BitmapFactory.decodeStream(input);
-                input.close();
-
-                android.graphics.Matrix matrix = new android.graphics.Matrix();
-                if (orientation == android.media.ExifInterface.ORIENTATION_ROTATE_90) {
-                    matrix.postRotate(90);
-                } else if (orientation == android.media.ExifInterface.ORIENTATION_ROTATE_180) {
-                    matrix.postRotate(180);
-                } else if (orientation == android.media.ExifInterface.ORIENTATION_ROTATE_270) {
-                    matrix.postRotate(270);
-                }
-
-                if (!matrix.isIdentity() && bitmap != null) {
-                    Bitmap rotatedBitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), matrix, true);
-                    if (rotatedBitmap != bitmap) {
-                        bitmap.recycle();
-                        bitmap = rotatedBitmap;
+            int orientation = android.media.ExifInterface.ORIENTATION_NORMAL;
+            String[] proj = { MediaStore.Images.Media.DATA };
+            try (android.database.Cursor cursor = activity.getContentResolver().query(uri, proj, null, null, null)) {
+                if (cursor != null && cursor.moveToFirst()) {
+                    int colIndex = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA);
+                    String filePath = cursor.getString(colIndex);
+                    if (filePath != null) {
+                        android.media.ExifInterface exif = new android.media.ExifInterface(filePath);
+                        orientation = exif.getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION, android.media.ExifInterface.ORIENTATION_NORMAL);
                     }
                 }
-
-                String base64 = "";
-                if (bitmap != null) {
-                    ByteArrayOutputStream stream = new ByteArrayOutputStream();
-                    bitmap.compress(Bitmap.CompressFormat.JPEG, 90, stream);
-                    base64 = Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP);
-                }
-
-                JSONObject photo = new JSONObject();
-                photo.put("photo", "data:image/jpeg;base64," + base64);
-                photo.put("pos", activity.getExifLocationFromUri(uri));
-                photo.put("index", startIndex + i); // 👈 Thêm index toàn cục vào JSON
-                dataArray.put(photo);
+            } catch (Exception e) {
+                e.printStackTrace();
             }
 
+            Bitmap bitmap = decodeAndScaleUri(uri, 1280);
+
+            android.graphics.Matrix matrix = new android.graphics.Matrix();
+            if (orientation == android.media.ExifInterface.ORIENTATION_ROTATE_90) {
+                matrix.postRotate(90);
+            } else if (orientation == android.media.ExifInterface.ORIENTATION_ROTATE_180) {
+                matrix.postRotate(180);
+            } else if (orientation == android.media.ExifInterface.ORIENTATION_ROTATE_270) {
+                matrix.postRotate(270);
+            }
+
+            if (!matrix.isIdentity() && bitmap != null) {
+                Bitmap rotatedBitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), matrix, true);
+                if (rotatedBitmap != bitmap) {
+                    bitmap.recycle();
+                    bitmap = rotatedBitmap;
+                }
+            }
+
+            byte[] imageBytes = new byte[0];
+            if (bitmap != null) {
+                ByteArrayOutputStream stream = new ByteArrayOutputStream();
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 80, stream);
+                imageBytes = stream.toByteArray();
+                bitmap.recycle();
+            }
+
+            MultipartBody.Builder builder = new MultipartBody.Builder().setType(MultipartBody.FORM);
+
+            JSONObject pos = activity.getExifLocationFromUri(uri);
+            RequestBody imageBody = RequestBody.create(imageBytes, MediaType.parse("image/jpeg"));
+            builder.addFormDataPart("photos[]", "photo-" + globalIndex + ".jpg", imageBody);
+            builder.addFormDataPart("photo_positions[]", pos != null ? pos.toString() : "");
+            builder.addFormDataPart("photo_indexes[]", String.valueOf(globalIndex));
+
             JSONObject payload = buildBasePayload();
-            payload.put("data", dataArray);
             builder.addFormDataPart("payload", payload.toString());
 
-            int batchSize = imageBatch.size();
             RequestBody requestBody = builder.build();
-            ProgressRequestBody progressBody = new ProgressRequestBody(requestBody, (bytesWritten, contentLength) -> {
-                int basePercent = (int) (((float) uploadedCount / totalMediaCount) * 100);
-                int currentBatchPercent = (int) (((float) batchSize / totalMediaCount) * 100);
-                float progressFraction = contentLength > 0 ? (float) bytesWritten / contentLength : 0;
-                int currentPercent = basePercent + (int) (currentBatchPercent * progressFraction);
-                new Handler(Looper.getMainLooper()).post(() -> progressDialog.updateProgress(Math.min(currentPercent, 100)));
-            });
-
-            return sendRequest(progressBody);
+            return sendRequest(requestBody);
         } catch (Exception e) {
-            Log.e(TAG, "Exception in uploadImageBatch", e);
+            Log.e(TAG, "Lỗi tải ảnh song song " + globalIndex, e);
             return false;
         }
     }
@@ -337,7 +335,7 @@ public class MediaUploader {
     private boolean sendRequest(RequestBody requestBody) {
         try {
             Request request = new Request.Builder()
-                    .url("http://gmo021.cansportsvg.com/api/camera-api/uploadMediaForAndroidApp3")
+                    .url("http://gmo021.cansportsvg.com/api/camera-api/uploadMediaForAndroidApp4")
                     .post(requestBody)
                     .build();
 
@@ -404,6 +402,39 @@ public class MediaUploader {
     }
 
 
+
+    private Bitmap decodeAndScaleUri(Uri uri, int maxDim) {
+        try {
+            android.graphics.BitmapFactory.Options options = new android.graphics.BitmapFactory.Options();
+            options.inJustDecodeBounds = true;
+            try (java.io.InputStream input = activity.getContentResolver().openInputStream(uri)) {
+                android.graphics.BitmapFactory.decodeStream(input, null, options);
+            }
+
+            int srcWidth = options.outWidth;
+            int srcHeight = options.outHeight;
+
+            int inSampleSize = 1;
+            if (srcWidth > maxDim || srcHeight > maxDim) {
+                int halfWidth = srcWidth / 2;
+                int halfHeight = srcHeight / 2;
+                while ((halfWidth / inSampleSize) >= maxDim && (halfHeight / inSampleSize) >= maxDim) {
+                    inSampleSize *= 2;
+                }
+            }
+
+            options.inJustDecodeBounds = false;
+            options.inSampleSize = inSampleSize;
+            options.inPreferredConfig = android.graphics.Bitmap.Config.ARGB_8888;
+
+            try (java.io.InputStream input = activity.getContentResolver().openInputStream(uri)) {
+                return android.graphics.BitmapFactory.decodeStream(input, null, options);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Exception in decodeAndScaleUri", e);
+            return null;
+        }
+    }
 
     private String getOrCreateFolderName() {
         long now = System.currentTimeMillis();

@@ -12,8 +12,8 @@ android {
         applicationId = "com.example.vgcamera"
         minSdk = 24
         targetSdk = 35
-        versionCode = 7
-        versionName = "2.1"
+        versionCode = 8
+        versionName = "2.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

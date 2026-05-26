@@ -574,56 +574,89 @@ public class MainActivity extends AppCompatActivity implements FaceAnalyzer.Face
     }
 
     private void downloadAndInstallApk(final String urlString) {
-        showToastOnMainThread("Đang tải bản cập nhật...");
-        new Thread(() -> {
-            try {
-                okhttp3.Request request = new okhttp3.Request.Builder().url(urlString).build();
-                OkHttpClient client = httpClient.newBuilder()
-                        .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-                        .readTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
-                        .build();
+        runOnUiThread(() -> {
+            final CustomProgressDialog progressDlg = new CustomProgressDialog(MainActivity.this);
+            progressDlg.setMessage("vi".equals(currentLanguage) ? "Đang tải bản cập nhật..." : "Downloading update...");
+            progressDlg.updateProgress(0);
+            progressDlg.setCancelable(false);
+            progressDlg.show();
 
-                try (okhttp3.Response response = client.newCall(request).execute()) {
-                    if (!response.isSuccessful()) {
-                        showToastOnMainThread("Lỗi tải xuống (HTTP " + response.code() + ")");
-                        return;
-                    }
+            new Thread(() -> {
+                try {
+                    okhttp3.Request request = new okhttp3.Request.Builder().url(urlString).build();
+                    OkHttpClient client = httpClient.newBuilder()
+                            .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                            .readTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
+                            .build();
 
-                    File apkFile = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "update.apk");
-                    if (apkFile.exists()) {
-                        apkFile.delete();
-                    }
-
-                    try (java.io.InputStream in = response.body().byteStream();
-                         java.io.FileOutputStream out = new java.io.FileOutputStream(apkFile)) {
-                         
-                        byte[] buffer = new byte[16384];
-                        int read;
-                        while ((read = in.read(buffer)) != -1) {
-                            out.write(buffer, 0, read);
+                    try (okhttp3.Response response = client.newCall(request).execute()) {
+                        if (!response.isSuccessful()) {
+                            runOnUiThread(() -> {
+                                progressDlg.dismiss();
+                                showRetryUpdateDialog(urlString, "HTTP " + response.code());
+                            });
+                            return;
                         }
+
+                        long contentLength = response.body().contentLength();
+                        File apkFile = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "update.apk");
+                        if (apkFile.exists()) {
+                            apkFile.delete();
+                        }
+
+                        try (java.io.InputStream in = response.body().byteStream();
+                             java.io.FileOutputStream out = new java.io.FileOutputStream(apkFile)) {
+                             
+                            byte[] buffer = new byte[16384];
+                            int read;
+                            long totalBytesRead = 0;
+                            while ((read = in.read(buffer)) != -1) {
+                                out.write(buffer, 0, read);
+                                totalBytesRead += read;
+                                if (contentLength > 0) {
+                                    int percent = (int) ((totalBytesRead * 100) / contentLength);
+                                    progressDlg.updateProgress(percent);
+                                }
+                            }
+                        }
+
+                        runOnUiThread(progressDlg::dismiss);
+                        showToastOnMainThread("vi".equals(currentLanguage) ? "Tải hoàn tất, đang cài đặt..." : "Download complete, installing...");
+
+                        Uri apkUri;
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                            apkUri = androidx.core.content.FileProvider.getUriForFile(MainActivity.this, getPackageName() + ".provider", apkFile);
+                        } else {
+                            apkUri = Uri.fromFile(apkFile);
+                        }
+
+                        Intent intent = new Intent(Intent.ACTION_VIEW);
+                        intent.setDataAndType(apkUri, "application/vnd.android.package-archive");
+                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                        startActivity(intent);
                     }
-
-                    showToastOnMainThread("Tải hoàn tất, đang cài đặt...");
-
-                    Uri apkUri;
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                        apkUri = androidx.core.content.FileProvider.getUriForFile(MainActivity.this, getPackageName() + ".provider", apkFile);
-                    } else {
-                        apkUri = Uri.fromFile(apkFile);
-                    }
-
-                    Intent intent = new Intent(Intent.ACTION_VIEW);
-                    intent.setDataAndType(apkUri, "application/vnd.android.package-archive");
-                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                    intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                    startActivity(intent);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    runOnUiThread(() -> {
+                        progressDlg.dismiss();
+                        showRetryUpdateDialog(urlString, e.getMessage());
+                    });
                 }
-            } catch (Exception e) {
-                e.printStackTrace();
-                showToastOnMainThread("Tải thất bại: " + e.getMessage());
-            }
-        }).start();
+            }).start();
+        });
+    }
+
+    private void showRetryUpdateDialog(final String urlString, String errorMessage) {
+        showUpdateDialog(
+                R.drawable.ic_x_circle,
+                R.color.red,
+                "vi".equals(currentLanguage) ? "Cập nhật thất bại" : "Update Failed",
+                ("vi".equals(currentLanguage) ? "Không thể tải bản cập nhật. Lỗi: " : "Failed to download update. Error: ") + errorMessage + 
+                        ("vi".equals(currentLanguage) ? "\n\nXin vui lòng thử lại để tiếp tục sử dụng ứng dụng." : "\n\nPlease try again to continue using the app."),
+                "vi".equals(currentLanguage) ? "Thử lại" : "Retry",
+                () -> downloadAndInstallApk(urlString)
+        );
     }
 
     // ====== Camera / Analyzer ======
